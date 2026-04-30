@@ -173,6 +173,49 @@ export async function createSessionAction(
   return { sessionId, link };
 }
 
+/**
+ * Mint a fresh JWT for an existing session and update its tokenJti so the
+ * room route accepts it. Used when the author lost the original link (the
+ * link is never persisted; only the jti is, and the jti only validates one
+ * specific JWT). The previous jti is invalidated by this swap.
+ */
+export async function regenerateSessionLinkAction(
+  sessionId: string,
+): Promise<CreateSessionResult> {
+  const session = await db.query.sessions.findFirst({
+    where: eq(schema.sessions.id, sessionId),
+  });
+  if (!session) throw new Error("session not found");
+
+  // Verify the caller owns the parent book (defense in depth).
+  const template = await db.query.interviewTemplates.findFirst({
+    where: eq(schema.interviewTemplates.id, session.templateId),
+  });
+  if (!template) throw new Error("template not found");
+  const book = await getBookById(template.bookId);
+  if (!book) throw new Error("book not found");
+
+  if (session.status === "closed" || session.status === "delivered") {
+    throw new Error("session already closed; cannot regenerate link");
+  }
+
+  const token = await signIntervieweeToken({
+    sid: session.id,
+    iid: session.intervieweeId,
+  });
+
+  await db
+    .update(schema.sessions)
+    .set({ tokenJti: token.jti, tokenExpiresAt: token.expiresAt })
+    .where(eq(schema.sessions.id, sessionId));
+
+  const baseUrl = process.env.PUBLIC_BASE_URL ?? "http://localhost:3000";
+  const link = `${baseUrl}/s/${token.jwt}`;
+
+  revalidatePath(`/books/${template.bookId}`);
+  return { sessionId, link };
+}
+
 export async function listInterviewTemplates(bookId: string) {
   return db.query.interviewTemplates.findMany({
     where: eq(schema.interviewTemplates.bookId, bookId),

@@ -13,6 +13,7 @@ import {
 } from "@/lib/actions/interviews";
 import { CreateSessionForm } from "./create-session-form";
 import { CreateTemplateForm } from "./create-template-form";
+import { SessionLinkButton } from "./session-link-button";
 
 export default async function InterviewerPage({
   params,
@@ -136,6 +137,7 @@ export default async function InterviewerPage({
                 (i) => i.id === s.intervieweeId,
               );
               const template = templates.find((t) => t.id === s.templateId);
+              const closed = s.status === "closed" || s.status === "delivered";
               return (
                 <li
                   key={s.id}
@@ -145,8 +147,15 @@ export default async function InterviewerPage({
                     {interviewee?.displayName ?? "?"} · {template?.name ?? "?"}
                   </div>
                   <div className="text-xs text-stone-500">
-                    estado: {s.status} · jti: {s.tokenJti}
+                    estado: {s.status}
                   </div>
+                  <SessionLinkButton
+                    sessionId={s.id}
+                    disabled={closed}
+                    disabledReason={
+                      closed ? "sesión cerrada" : undefined
+                    }
+                  />
                 </li>
               );
             })}
