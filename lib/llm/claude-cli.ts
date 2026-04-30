@@ -132,8 +132,27 @@ export class ClaudeCliClient implements LLMClient {
         }
       });
 
-      stdinStream.write(opts.userPrompt);
-      stdinStream.end();
+      // Large prompts (>16 KB default highWaterMark) need explicit
+      // backpressure handling — `write()` returns false and the underlying
+      // pipe must be drained before further writes. Without this the CLI
+      // child can sit forever waiting for the rest of the prompt while
+      // Node's pipe buffer is full and we never call end().
+      const ok = stdinStream.write(opts.userPrompt, "utf8", (err) => {
+        if (err) {
+          reject(new LLMError(`stdin write failed: ${err.message}`, err));
+          return;
+        }
+        stdinStream.end();
+      });
+      if (!ok) {
+        // The callback above will fire after the buffer drains. Drain might
+        // happen before the callback in some Node versions, so we also add
+        // a one-shot listener that no-ops if already ended.
+        stdinStream.once("drain", () => {
+          // If end() hasn't been called yet from the callback, this push is
+          // safe; Node ignores double-end.
+        });
+      }
     });
   }
 }
