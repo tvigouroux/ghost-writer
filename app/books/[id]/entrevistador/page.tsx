@@ -1,39 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getBookById } from "@/lib/actions/books";
+import { listImportableMds } from "@/lib/actions/import-template";
 import {
-  createInterviewTemplateAction,
   createIntervieweeAction,
   listInterviewees,
   listInterviewTemplates,
   listSessions,
 } from "@/lib/actions/interviews";
 import { CreateSessionForm } from "./create-session-form";
-
-const SAMPLE_BLOCKS = JSON.stringify(
-  [
-    {
-      id: "block-1",
-      title: "Cómo nos conocimos",
-      objective:
-        "Capturar el primer encuentro y qué impresión inicial causó el autor.",
-      seedQuestions: [
-        "¿Te acordás cómo nos conocimos?",
-        "¿Qué pensaste de mí esa primera vez?",
-      ],
-      mustCover: true,
-    },
-    {
-      id: "block-2",
-      title: "Una escena memorable",
-      objective: "Pedir un momento concreto, una imagen, no un resumen.",
-      seedQuestions: ["¿Hay un momento entre nosotros que te quedó pegado?"],
-      mustCover: true,
-    },
-  ],
-  null,
-  2,
-);
+import { CreateTemplateForm } from "./create-template-form";
 
 export default async function InterviewerPage({
   params,
@@ -44,10 +20,11 @@ export default async function InterviewerPage({
   const book = await getBookById(bookId);
   if (!book) notFound();
 
-  const [templates, interviewees, sessions] = await Promise.all([
+  const [templates, interviewees, sessions, importable] = await Promise.all([
     listInterviewTemplates(bookId),
     listInterviewees(bookId),
     listSessions(bookId),
+    listImportableMds(bookId).catch(() => []),
   ]);
 
   return (
@@ -86,52 +63,11 @@ export default async function InterviewerPage({
             ))}
           </ul>
         )}
-        <details className="mt-4">
+        <details className="mt-4" open={templates.length === 0}>
           <summary className="cursor-pointer text-sm font-medium">
             Crear template
           </summary>
-          <form
-            action={createInterviewTemplateAction}
-            className="mt-3 space-y-3 rounded border border-stone-200 p-4 dark:border-stone-800"
-          >
-            <input type="hidden" name="bookId" value={bookId} />
-            <FieldShort name="name" label="Nombre" required />
-            <FieldLong
-              name="systemPrompt"
-              label="System prompt (reglas adicionales para el agente entrevistador)"
-              required
-              defaultValue="Sé cálido y atento. Profundizá si las respuestas son vagas. Una pregunta por turno."
-            />
-            <FieldLong
-              name="introMd"
-              label="Intro markdown (lo que ve el entrevistado al abrir el link)"
-              defaultValue="Hola. Esto es una entrevista para un libro en construcción. Puedes responder por texto o audio. Cuando quieras, empezamos."
-            />
-            <FieldLong
-              name="guideBlocksJson"
-              label="Guide blocks (JSON)"
-              required
-              defaultValue={SAMPLE_BLOCKS}
-              monospace
-              rows={14}
-            />
-            <FieldLong
-              name="contextFilesText"
-              label="Archivos de contexto del repo (uno por línea, paths relativos)"
-              placeholder={"outline.md\nacerca-de-mi.md\ncapitulos/01-slug.md"}
-              monospace
-            />
-            <FieldShort
-              name="sourceMdPath"
-              label="Source markdown path (opcional, si el template viene de un .md del repo)"
-            />
-            <button
-              type="submit"
-              className="rounded bg-stone-900 px-4 py-2 text-sm font-medium text-white hover:bg-stone-800 dark:bg-stone-100 dark:text-stone-900"
-            >
-              Crear template
-            </button>
-          </form>
+          <CreateTemplateForm bookId={bookId} importable={importable} />
         </details>
       </section>
 
