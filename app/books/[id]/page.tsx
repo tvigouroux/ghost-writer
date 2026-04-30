@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getBookById } from "@/lib/actions/books";
+import { getBookById, getBookRemoteInfo } from "@/lib/actions/books";
+import { RemotePanel } from "./remote-panel";
 
 export default async function BookOverviewPage({
   params,
@@ -10,6 +11,7 @@ export default async function BookOverviewPage({
   const { id } = await params;
   const book = await getBookById(id);
   if (!book) notFound();
+  const remoteInfo = await getBookRemoteInfo(id).catch(() => null);
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-12">
@@ -45,6 +47,16 @@ export default async function BookOverviewPage({
         <dt className="text-stone-500">Modos</dt>
         <dd>{(JSON.parse(book.enabledModes) as string[]).join(", ")}</dd>
       </dl>
+
+      {remoteInfo ? (
+        <RemotePanel
+          bookId={book.id}
+          originUrl={remoteInfo.originUrl}
+          isPushable={remoteInfo.isPushable}
+          reason={remoteInfo.reason}
+          detectedGithubUrl={remoteInfo.detectedGithubUrl}
+        />
+      ) : null}
 
       <section className="mt-12">
         <h2 className="text-xl font-medium">Modos</h2>

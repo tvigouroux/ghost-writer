@@ -45,10 +45,31 @@ export async function cloneBookRepo(opts: CloneOptions): Promise<CloneResult> {
 
   const repoGit = simpleGit(localPath);
   const branchInfo = await repoGit.branch();
+
+  // If the source was a local working copy, our origin now points at that
+  // local path — and Git refuses to push to a non-bare working copy. Walk
+  // through to its own origin and, if that's a real remote (github.com, etc),
+  // rewrite ours to match. The author can still override later from the UI.
+  if (!isRemoteUrl(opts.source)) {
+    try {
+      const upstream = simpleGit(opts.source);
+      const upstreamOrigin = (await upstream.remote(["get-url", "origin"]) || "").trim();
+      if (upstreamOrigin && isRemoteUrl(upstreamOrigin)) {
+        await repoGit.remote(["set-url", "origin", upstreamOrigin]);
+      }
+    } catch {
+      /* upstream may not be a git repo or may have no origin; that's fine */
+    }
+  }
+
   return {
     localPath,
     defaultBranch: branchInfo.current,
   };
+}
+
+function isRemoteUrl(s: string): boolean {
+  return /^(https?:\/\/|git@|ssh:\/\/)/.test(s);
 }
 
 /**
