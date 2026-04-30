@@ -15,9 +15,21 @@ import {
 } from "./llm/modes/interviewer";
 
 const LANGUAGE_LABELS: Record<string, string> = {
-  es: "Spanish (Spanish/Latin American register, neutral)",
+  // Default Spanish register: Chilean. Use tuteo (tú/te/tu, NOT vos/te/tu in
+  // voseo form). Vocabulary leans Chilean but avoids strong colloquialisms
+  // (no "po", no "cachái") so written prose stays clean. If a different
+  // Spanish variant is needed for a specific book, the author can override
+  // the language code (e.g. "es-AR" → Rioplatense).
+  es: "Spanish (Chilean register, tuteo — never voseo)",
+  "es-cl": "Spanish (Chilean register, tuteo — never voseo)",
+  "es-ar": "Spanish (Rioplatense register, voseo)",
+  "es-mx": "Spanish (Mexican register, tuteo)",
+  "es-es": "Spanish (Peninsular register, tuteo)",
   en: "English",
+  "en-us": "English (US)",
+  "en-gb": "English (British)",
   pt: "Portuguese",
+  "pt-br": "Portuguese (Brazilian)",
   fr: "French",
   it: "Italian",
   de: "German",

@@ -23,7 +23,7 @@ export default async function Home() {
         <div className="rounded border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
           <strong>Auth no configurada.</strong> Setea{" "}
           <code className="font-mono">DEV_AUTHOR_EMAIL</code> en{" "}
-          <code className="font-mono">.env</code> y reiniciá el dev server.
+          <code className="font-mono">.env</code> y reinicia el dev server.
           <div className="mt-2 text-xs opacity-80">{authError}</div>
         </div>
       ) : (
@@ -32,7 +32,7 @@ export default async function Home() {
             <h2 className="mb-3 text-xl font-medium">Tus libros</h2>
             {books.length === 0 ? (
               <p className="text-sm text-stone-500">
-                Todavía no conectaste ningún libro.
+                Todavía no has conectado ningún libro.
               </p>
             ) : (
               <ul className="space-y-2">
@@ -61,9 +61,9 @@ export default async function Home() {
           <section>
             <h2 className="mb-3 text-xl font-medium">Conectar un libro</h2>
             <p className="mb-4 text-sm text-stone-500">
-              Pasame la URL de un repo de GitHub (https) o un path local
-              (preferentemente un repo git ya inicializado). La app va a
-              clonarlo a{" "}
+              Pásame la URL de un repo de GitHub (https) o un path local
+              (preferentemente un repo git ya inicializado). La app lo va a
+              clonar a{" "}
               <code className="font-mono">data/book-clones/&#123;book_id&#125;/</code>{" "}
               y trabajar contra esa copia.
             </p>

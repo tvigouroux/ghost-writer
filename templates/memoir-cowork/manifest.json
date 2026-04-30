@@ -20,7 +20,7 @@
       "key": "TESIS",
       "label": "Tesis o pregunta central del libro, en una frase",
       "required": true,
-      "example": "Cómo un cuerpo y una identidad cambian cuando dejás de mentirte"
+      "example": "Cómo un cuerpo y una identidad cambian cuando dejas de mentirte"
     },
     {
       "key": "LECTOR_IDEAL",

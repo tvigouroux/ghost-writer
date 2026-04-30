@@ -67,7 +67,7 @@ export default async function InterviewerPage({
         <h2 className="text-xl font-medium">Templates</h2>
         {templates.length === 0 ? (
           <p className="mt-2 text-sm text-stone-500">
-            No hay templates todavía. Creá uno abajo.
+            No hay templates todavía. Crea uno abajo.
           </p>
         ) : (
           <ul className="mt-3 space-y-2">
@@ -105,7 +105,7 @@ export default async function InterviewerPage({
             <FieldLong
               name="introMd"
               label="Intro markdown (lo que ve el entrevistado al abrir el link)"
-              defaultValue="Hola. Esto es una entrevista para un libro en construcción. Podés responder por texto o audio. Cuando quieras, empezamos."
+              defaultValue="Hola. Esto es una entrevista para un libro en construcción. Puedes responder por texto o audio. Cuando quieras, empezamos."
             />
             <FieldLong
               name="guideBlocksJson"
@@ -182,7 +182,7 @@ export default async function InterviewerPage({
         <h2 className="text-xl font-medium">Sesiones</h2>
         {sessions.length === 0 ? (
           <p className="mt-2 text-sm text-stone-500">
-            Todavía no creaste ninguna sesión.
+            Todavía no has creado ninguna sesión.
           </p>
         ) : (
           <ul className="mt-3 space-y-2">
@@ -213,7 +213,7 @@ export default async function InterviewerPage({
           </summary>
           {templates.length === 0 || interviewees.length === 0 ? (
             <p className="mt-3 text-sm text-stone-500">
-              Necesitás al menos un template y un entrevistado primero.
+              Necesitas al menos un template y un entrevistado primero.
             </p>
           ) : (
             <CreateSessionForm

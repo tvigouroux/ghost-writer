@@ -138,7 +138,7 @@ export function Room({
       ) : null}
 
       <footer className="mt-auto pt-12 text-center text-[10px] text-stone-400">
-        Tus respuestas se procesan después de que termines. Podés vetar
+        Tus respuestas se procesan después de que termines. Puedes vetar
         cualquier respuesta tuya con el botón "marcar como off-the-record".
       </footer>
     </main>
