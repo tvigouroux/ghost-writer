@@ -1,11 +1,20 @@
-import "server-only";
-
 import { SignJWT, jwtVerify } from "jose";
 import { ulid } from "ulid";
 
-const SECRET_BYTES = new TextEncoder().encode(
-  process.env.JWT_SECRET || "dev-only-do-not-use-in-prod-32-byte-secret-xx",
-);
+/**
+ * Lazy access to the JWT secret so process.env is read at first use, not at
+ * module-import time. This matters because importers (Next.js, scripts) may
+ * load .env after this module is first imported; if we cached the secret as a
+ * top-level const, scripts and the dev server would fork onto two different
+ * fallback secrets and tokens minted by one would fail verification in the
+ * other.
+ */
+function secretBytes(): Uint8Array {
+  const raw =
+    process.env.JWT_SECRET ||
+    "dev-only-do-not-use-in-prod-32-byte-secret-xx";
+  return new TextEncoder().encode(raw);
+}
 
 const ISSUER = "ghost-writer";
 const AUDIENCE = "interviewee";
@@ -44,7 +53,7 @@ export async function signIntervieweeToken(
     .setJti(jti)
     .setIssuedAt(now)
     .setExpirationTime(expSeconds)
-    .sign(SECRET_BYTES);
+    .sign(secretBytes());
 
   return { jwt, jti, expiresAt: expSeconds * 1000 };
 }
@@ -52,7 +61,7 @@ export async function signIntervieweeToken(
 export async function verifyIntervieweeToken(
   jwt: string,
 ): Promise<IntervieweeClaims & { jti: string }> {
-  const { payload } = await jwtVerify(jwt, SECRET_BYTES, {
+  const { payload } = await jwtVerify(jwt, secretBytes(), {
     issuer: ISSUER,
     audience: AUDIENCE,
   });
