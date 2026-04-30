@@ -1,0 +1,47 @@
+{
+  "name": "ghost-writer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Web platform for assisted book creation, with Claude conducting interviews and writing alongside the author.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:studio": "drizzle-kit studio",
+    "smoke:claude": "tsx scripts/smoke-claude.ts"
+  },
+  "dependencies": {
+    "next": "^15.0.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@libsql/client": "^0.14.0",
+    "cross-spawn": "^7.0.6",
+    "drizzle-orm": "^0.36.0",
+    "server-only": "^0.0.1",
+    "jose": "^5.9.6",
+    "simple-git": "^3.27.0",
+    "ulid": "^2.3.0",
+    "zod": "^3.23.8"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "sharp"]
+  },
+  "devDependencies": {
+    "@types/cross-spawn": "^6.0.6",
+    "@types/node": "^22.9.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "drizzle-kit": "^0.28.0",
+    "tailwindcss": "^3.4.14",
+    "postcss": "^8.4.49",
+    "autoprefixer": "^10.4.20",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "eslint": "^9.14.0",
+    "eslint-config-next": "^15.0.3"
+  }
+}
