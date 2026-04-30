@@ -5,7 +5,9 @@ import { createInterviewTemplateAction } from "@/lib/actions/interviews";
 import {
   parseInterviewMdAction,
   type ImportableMd,
+  type RepoMdFile,
 } from "@/lib/actions/import-template";
+import { ContextFilesPicker } from "./context-files-picker";
 
 const DEFAULT_BLOCKS = JSON.stringify(
   [
@@ -35,9 +37,11 @@ const DEFAULT_BLOCKS = JSON.stringify(
 export function CreateTemplateForm({
   bookId,
   importable,
+  repoFiles,
 }: {
   bookId: string;
   importable: ImportableMd[];
+  repoFiles: RepoMdFile[];
 }) {
   const [name, setName] = useState("");
   const [systemPrompt, setSystemPrompt] = useState(
@@ -47,7 +51,7 @@ export function CreateTemplateForm({
     "Hola. Esto es una entrevista para un libro en construcción. Puedes responder por texto o audio. Cuando quieras, empezamos.",
   );
   const [guideBlocksJson, setGuideBlocksJson] = useState(DEFAULT_BLOCKS);
-  const [contextFilesText, setContextFilesText] = useState("");
+  const [selectedContext, setSelectedContext] = useState<Set<string>>(new Set());
   const [sourceMdPath, setSourceMdPath] = useState("");
   const [importPath, setImportPath] = useState("");
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -132,7 +136,10 @@ export function CreateTemplateForm({
           formData.set("systemPrompt", systemPrompt);
           formData.set("introMd", introMd);
           formData.set("guideBlocksJson", guideBlocksJson);
-          formData.set("contextFilesText", contextFilesText);
+          formData.set(
+            "contextFilesText",
+            [...selectedContext].sort().join("\n"),
+          );
           formData.set("sourceMdPath", sourceMdPath);
           startTransition(async () => {
             try {
@@ -140,6 +147,7 @@ export function CreateTemplateForm({
               setSuccess(true);
               setName("");
               setSourceMdPath("");
+              setSelectedContext(new Set());
               setWarnings([]);
             } catch (err) {
               setError((err as Error).message);
@@ -175,13 +183,23 @@ export function CreateTemplateForm({
           monospace
           rows={14}
         />
-        <FieldLong
-          label="Archivos de contexto del repo (uno por línea, paths relativos)"
-          value={contextFilesText}
-          onChange={setContextFilesText}
-          placeholder={"outline.md\nacerca-de-mi.md\ncapitulos/01-slug.md"}
-          monospace
-        />
+        <div>
+          <span className="block text-sm font-medium">
+            Archivos de contexto del repo
+          </span>
+          <p className="mt-1 text-xs text-stone-500">
+            Lo que marques se pasa al agente como contexto curado por turno.
+            Default cerrado: si no marcas nada, el entrevistador trabaja solo
+            con el guion y el CLAUDE.md del libro.
+          </p>
+          <div className="mt-2">
+            <ContextFilesPicker
+              files={repoFiles}
+              selected={selectedContext}
+              onChange={setSelectedContext}
+            />
+          </div>
+        </div>
         <Field
           label="Source markdown path (si vino de un .md del repo)"
           value={sourceMdPath}

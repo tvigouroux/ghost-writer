@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getBookById } from "@/lib/actions/books";
-import { listImportableMds } from "@/lib/actions/import-template";
+import {
+  listImportableMds,
+  listRepoMarkdownFiles,
+} from "@/lib/actions/import-template";
 import {
   createIntervieweeAction,
   listInterviewees,
@@ -20,12 +23,14 @@ export default async function InterviewerPage({
   const book = await getBookById(bookId);
   if (!book) notFound();
 
-  const [templates, interviewees, sessions, importable] = await Promise.all([
-    listInterviewTemplates(bookId),
-    listInterviewees(bookId),
-    listSessions(bookId),
-    listImportableMds(bookId).catch(() => []),
-  ]);
+  const [templates, interviewees, sessions, importable, repoFiles] =
+    await Promise.all([
+      listInterviewTemplates(bookId),
+      listInterviewees(bookId),
+      listSessions(bookId),
+      listImportableMds(bookId).catch(() => []),
+      listRepoMarkdownFiles(bookId).catch(() => []),
+    ]);
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-12">
@@ -67,7 +72,11 @@ export default async function InterviewerPage({
           <summary className="cursor-pointer text-sm font-medium">
             Crear template
           </summary>
-          <CreateTemplateForm bookId={bookId} importable={importable} />
+          <CreateTemplateForm
+            bookId={bookId}
+            importable={importable}
+            repoFiles={repoFiles}
+          />
         </details>
       </section>
 
