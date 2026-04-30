@@ -18,14 +18,15 @@ export function SessionAdminButtons({ sessionId }: { sessionId: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function reset() {
-    if (!confirm("Esto borra los turnos y la transcripción de esta sesión. ¿Continuar?")) {
-      return;
-    }
+  function reset(dropSummary: boolean) {
+    const msg = dropSummary
+      ? "Esto borra los turnos, la transcripción Y el resumen de contexto (la próxima apertura recomputa el resumen, ~5 min). ¿Continuar?"
+      : "Esto borra los turnos y la transcripción. El resumen de contexto se conserva para no recomputar. ¿Continuar?";
+    if (!confirm(msg)) return;
     setError(null);
     start(async () => {
       try {
-        await resetSessionAction(sessionId);
+        await resetSessionAction(sessionId, dropSummary);
         router.refresh();
       } catch (err) {
         setError((err as Error).message);
@@ -50,10 +51,20 @@ export function SessionAdminButtons({ sessionId }: { sessionId: string }) {
       <button
         type="button"
         disabled={pending}
-        onClick={reset}
+        onClick={() => reset(false)}
+        title="Borra turnos y transcripción. Mantiene el resumen de contexto para no recomputar."
         className="rounded border border-stone-300 px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-stone-100 disabled:opacity-50 dark:border-stone-700 dark:hover:bg-stone-800"
       >
         {pending ? "..." : "reiniciar"}
+      </button>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => reset(true)}
+        title="Reinicia y además recomputa el resumen de contexto (usalo si editaste archivos del repo o el prompt del summarizer)."
+        className="rounded border border-stone-300 px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-stone-100 disabled:opacity-50 dark:border-stone-700 dark:hover:bg-stone-800"
+      >
+        reiniciar + recargar contexto
       </button>
 
       {confirmDelete ? (

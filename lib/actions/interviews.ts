@@ -249,8 +249,16 @@ export async function recalculateSessionSummaryAction(
  * closedAt cleared, JTI rotated so the previous link stops working. Useful
  * when the author wants to redo the interview after iterating on the prompt
  * or context.
+ *
+ * The cached context_summary is **preserved by default** so prompt-iteration
+ * cycles don't pay the 4-5 minute recompute every time. Pass
+ * `dropSummary: true` to also clear it (use after editing repo files or the
+ * summarizer prompt itself).
  */
-export async function resetSessionAction(sessionId: string): Promise<void> {
+export async function resetSessionAction(
+  sessionId: string,
+  dropSummary = false,
+): Promise<void> {
   const session = await db.query.sessions.findFirst({
     where: eq(schema.sessions.id, sessionId),
   });
@@ -275,22 +283,20 @@ export async function resetSessionAction(sessionId: string): Promise<void> {
 
   await db.delete(schema.turns).where(eq(schema.turns.sessionId, sessionId));
   await db.delete(schema.outputs).where(eq(schema.outputs.sessionId, sessionId));
-  await db
-    .update(schema.sessions)
-    .set({
-      status: "draft",
-      currentBlockId: blocks[0]?.id ?? null,
-      blockCoverage: JSON.stringify(initialCoverage),
-      startedAt: null,
-      closedAt: null,
-      tokenJti: token.jti,
-      tokenExpiresAt: token.expiresAt,
-      // Clear the cached summary too so the next open recomputes against
-      // whatever the repo looks like now.
-      contextSummary: null,
-      contextSummaryAt: null,
-    })
-    .where(eq(schema.sessions.id, sessionId));
+  const updates: Record<string, unknown> = {
+    status: "draft",
+    currentBlockId: blocks[0]?.id ?? null,
+    blockCoverage: JSON.stringify(initialCoverage),
+    startedAt: null,
+    closedAt: null,
+    tokenJti: token.jti,
+    tokenExpiresAt: token.expiresAt,
+  };
+  if (dropSummary) {
+    updates.contextSummary = null;
+    updates.contextSummaryAt = null;
+  }
+  await db.update(schema.sessions).set(updates).where(eq(schema.sessions.id, sessionId));
 
   revalidatePath(`/books/${template.bookId}/entrevistador`);
 }
