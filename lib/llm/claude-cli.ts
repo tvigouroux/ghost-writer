@@ -1,5 +1,8 @@
 import spawn from "cross-spawn";
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
+import { unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // This module is intrinsically server-only (subprocess), but we don't import
@@ -53,14 +56,26 @@ export class ClaudeCliClient implements LLMClient {
   }
 
   private async completeOnce(opts: CompleteOptions): Promise<CompleteResult> {
+    // Windows cmd.exe (which cross-spawn uses to invoke .cmd shims) caps the
+    // total command line at ~8191 chars. The interviewer system prompt has
+    // grown past that with the BAD/GOOD examples block. Write the prompt to
+    // a temp file and pass it via --append-system-prompt-file.
+    const promptFile = join(
+      tmpdir(),
+      `ghost-writer-sysprompt-${Date.now()}-${randomBytes(6).toString("hex")}.txt`,
+    );
+    const fullSystem =
+      opts.systemPrompt + (opts.appendSystem ? "\n\n" + opts.appendSystem : "");
+    await writeFile(promptFile, fullSystem, "utf8");
+
     const args = [
       "-p",
       "--output-format",
       "stream-json",
       "--include-partial-messages",
       "--verbose",
-      "--append-system-prompt",
-      opts.systemPrompt + (opts.appendSystem ? "\n\n" + opts.appendSystem : ""),
+      "--append-system-prompt-file",
+      promptFile,
     ];
     if (opts.model) {
       args.push("--model", opts.model);
@@ -68,6 +83,11 @@ export class ClaudeCliClient implements LLMClient {
 
     const timeoutMs = Number(process.env.CLAUDE_CLI_TIMEOUT_MS) || 5 * 60 * 1000;
     const start = Date.now();
+    const cleanupPromptFile = () => {
+      unlink(promptFile).catch(() => {
+        /* best effort */
+      });
+    };
     return new Promise<CompleteResult>((resolveResult, reject) => {
       const child = spawn(this.bin, args, {
         stdio: ["pipe", "pipe", "pipe"],
@@ -102,12 +122,14 @@ export class ClaudeCliClient implements LLMClient {
 
       child.on("error", (err) => {
         clearTimeout(timer);
+        cleanupPromptFile();
         opts.signal?.removeEventListener("abort", onAbort);
         reject(new LLMError(`failed to spawn claude CLI: ${err.message}`, err));
       });
 
       child.on("close", (code) => {
         clearTimeout(timer);
+        cleanupPromptFile();
         opts.signal?.removeEventListener("abort", onAbort);
         if (timedOut) {
           reject(new LLMError(`claude CLI timed out after ${timeoutMs}ms`));
