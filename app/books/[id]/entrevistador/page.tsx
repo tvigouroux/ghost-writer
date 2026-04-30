@@ -5,6 +5,7 @@ import {
   listImportableMds,
   listRepoMarkdownFiles,
 } from "@/lib/actions/import-template";
+import { listOutputsForBook } from "@/lib/actions/outputs";
 import {
   createIntervieweeAction,
   listInterviewees,
@@ -24,13 +25,14 @@ export default async function InterviewerPage({
   const book = await getBookById(bookId);
   if (!book) notFound();
 
-  const [templates, interviewees, sessions, importable, repoFiles] =
+  const [templates, interviewees, sessions, importable, repoFiles, outputBySession] =
     await Promise.all([
       listInterviewTemplates(bookId),
       listInterviewees(bookId),
       listSessions(bookId),
       listImportableMds(bookId).catch(() => []),
       listRepoMarkdownFiles(bookId).catch(() => []),
+      listOutputsForBook(bookId),
     ]);
 
   return (
@@ -138,6 +140,7 @@ export default async function InterviewerPage({
               );
               const template = templates.find((t) => t.id === s.templateId);
               const closed = s.status === "closed" || s.status === "delivered";
+              const outputId = outputBySession.get(s.id);
               return (
                 <li
                   key={s.id}
@@ -149,11 +152,23 @@ export default async function InterviewerPage({
                   <div className="text-xs text-stone-500">
                     estado: {s.status}
                   </div>
+                  {outputId ? (
+                    <Link
+                      href={`/books/${bookId}/outputs/${outputId}`}
+                      className="mt-2 inline-block rounded border border-stone-300 px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800"
+                    >
+                      ver transcripción
+                    </Link>
+                  ) : null}
                   <SessionLinkButton
                     sessionId={s.id}
                     disabled={closed}
                     disabledReason={
-                      closed ? "sesión cerrada" : undefined
+                      closed
+                        ? outputId
+                          ? "sesión cerrada"
+                          : "sesión cerrada · sin transcripción"
+                        : undefined
                     }
                   />
                 </li>

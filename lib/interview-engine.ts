@@ -13,6 +13,11 @@ import {
   type BlockStatus,
   type GuideBlock,
 } from "./llm/modes/interviewer";
+import {
+  buildRendererSystemPrompt,
+  buildRendererUserPrompt,
+  type RendererInput,
+} from "./llm/modes/renderer";
 
 const LANGUAGE_LABELS: Record<string, string> = {
   // Default Spanish register: Chilean. Use tuteo (tú/te/tu, NOT vos/te/tu in
@@ -86,6 +91,35 @@ const InterviewerJsonShape = (() => {
 function stripJsonFences(s: string): string {
   // Common case: model wraps JSON in ```json ... ``` despite instructions.
   const fenced = /^\s*```(?:json)?\s*\n([\s\S]*?)\n```\s*$/;
+  const m = s.match(fenced);
+  return m ? m[1] : s;
+}
+
+/**
+ * Run the renderer at session close. Returns the markdown document.
+ */
+export async function renderInterviewOutput(
+  input: Omit<RendererInput, "bookLanguageLabel">,
+  client: ClaudeCliClient = new ClaudeCliClient(),
+): Promise<string> {
+  const bookLanguageLabel = languageLabel(input.bookLanguage);
+  const systemPrompt = buildRendererSystemPrompt({
+    bookLanguage: input.bookLanguage,
+    bookLanguageLabel,
+  });
+  const userPrompt = buildRendererUserPrompt({ ...input, bookLanguageLabel });
+  const result = await client.complete({ systemPrompt, userPrompt });
+  const cleaned = stripMarkdownFences(result.text).trim();
+  if (!cleaned) {
+    throw new LLMError("renderer returned empty output");
+  }
+  return cleaned;
+}
+
+function stripMarkdownFences(s: string): string {
+  // Sometimes the model wraps the whole document in ```markdown ... ```;
+  // strip a single outer fence if present.
+  const fenced = /^\s*```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*$/;
   const m = s.match(fenced);
   return m ? m[1] : s;
 }

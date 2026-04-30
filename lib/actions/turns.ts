@@ -7,7 +7,7 @@ import { ulid } from "ulid";
 import { z } from "zod";
 import { verifyIntervieweeToken } from "../auth/interviewee";
 import { db, schema } from "../db/client";
-import { runInterviewerTurn } from "../interview-engine";
+import { renderInterviewOutput, runInterviewerTurn } from "../interview-engine";
 import { RepoReader } from "../repo/reader";
 import type { BlockStatus, GuideBlock } from "../llm/modes/interviewer";
 
@@ -114,6 +114,95 @@ async function loadFullContext(token: string) {
   });
   if (!book) throw new Error("book not found");
   return { claims, session, template, book };
+}
+
+/**
+ * Generate the processed-transcript markdown for a closed session and persist
+ * it as an `outputs` row. Idempotent: if an output already exists for the
+ * session it is overwritten with the freshly rendered markdown.
+ *
+ * Caller responsibilities: the session must be marked closed before calling
+ * this (the output reflects the final block_coverage).
+ */
+async function renderAndStoreOutput(
+  sessionId: string,
+  closedBy: "agent" | "interviewee",
+): Promise<void> {
+  const session = await db.query.sessions.findFirst({
+    where: eq(schema.sessions.id, sessionId),
+  });
+  if (!session) throw new Error("session not found");
+  const template = await db.query.interviewTemplates.findFirst({
+    where: eq(schema.interviewTemplates.id, session.templateId),
+  });
+  if (!template) throw new Error("template not found");
+  const book = await db.query.books.findFirst({
+    where: eq(schema.books.id, template.bookId),
+  });
+  if (!book) throw new Error("book not found");
+  const interviewee = await db.query.interviewees.findFirst({
+    where: eq(schema.interviewees.id, session.intervieweeId),
+  });
+  if (!interviewee) throw new Error("interviewee not found");
+
+  const blocks = JSON.parse(template.guideBlocks) as GuideBlock[];
+  const coverage = JSON.parse(session.blockCoverage ?? "{}") as Record<string, BlockStatus>;
+
+  const turnsRows = await db.query.turns.findMany({
+    where: eq(schema.turns.sessionId, sessionId),
+    orderBy: (t, { asc }) => [asc(t.ordinal)],
+  });
+
+  const reader = new RepoReader(book.repoLocalPath);
+  let claudeMd = "";
+  try {
+    claudeMd = await reader.readFile("CLAUDE.md");
+  } catch {
+    /* missing CLAUDE.md is acceptable */
+  }
+
+  const ts = new Date(session.closedAt ?? Date.now());
+  const sessionDate = `${ts.getFullYear()}-${String(ts.getMonth() + 1).padStart(2, "0")}-${String(ts.getDate()).padStart(2, "0")}`;
+
+  const md = await renderInterviewOutput({
+    bookLanguage: book.defaultLanguage,
+    bookClaudeMd: claudeMd,
+    templateName: template.name,
+    intervieweeName: interviewee.displayName,
+    intervieweeRelation: interviewee.relation ?? null,
+    blocks,
+    blockCoverage: coverage,
+    turns: turnsRows.map((t) => ({
+      ordinal: t.ordinal,
+      role: t.role as "interviewer" | "interviewee",
+      blockId: t.blockId,
+      text: t.contentText ?? "",
+      vetoed: t.vetoed === 1,
+    })),
+    sessionDate,
+    closedBy,
+    sessionId,
+  });
+
+  const existing = await db.query.outputs.findFirst({
+    where: eq(schema.outputs.sessionId, sessionId),
+  });
+  if (existing) {
+    await db
+      .update(schema.outputs)
+      .set({ processedMd: md })
+      .where(eq(schema.outputs.id, existing.id));
+  } else {
+    await db.insert(schema.outputs).values({
+      id: ulid(),
+      sessionId,
+      processedMd: md,
+      deliveredMdPath: null,
+      deliveredAt: null,
+      approvedByAuthor: 0,
+      createdAt: Date.now(),
+    });
+  }
 }
 
 async function readBookContext(
@@ -276,6 +365,16 @@ export async function submitTextTurnAction(
     })
     .where(eq(schema.sessions.id, session.id));
 
+  if (result.shouldClose) {
+    // Render is best-effort: if it fails, the session is still closed and the
+    // author can retry from the output page.
+    try {
+      await renderAndStoreOutput(session.id, "agent");
+    } catch (err) {
+      console.error("renderAndStoreOutput (agent close) failed:", err);
+    }
+  }
+
   const room = await loadRoomFromToken(token);
   return { ...room, shouldClose: result.shouldClose };
 }
@@ -313,5 +412,10 @@ export async function closeSessionAction(token: string): Promise<RoomState> {
     .update(schema.sessions)
     .set({ status: "closed", closedAt: Date.now() })
     .where(eq(schema.sessions.id, session.id));
+  try {
+    await renderAndStoreOutput(session.id, "interviewee");
+  } catch (err) {
+    console.error("renderAndStoreOutput (interviewee close) failed:", err);
+  }
   return loadRoomFromToken(token);
 }
