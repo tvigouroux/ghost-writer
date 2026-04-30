@@ -1,25 +1,36 @@
+import spawn from "cross-spawn";
 import { NextResponse } from "next/server";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 
 export async function GET() {
   const checks: Record<string, "ok" | string> = {};
 
-  // DB file presence
   const dbPath = resolve(process.env.DATABASE_URL ?? "data/ghost-writer.sqlite");
   checks.db = existsSync(dbPath) ? "ok" : `missing: ${dbPath}`;
 
-  // Claude CLI reachable
-  try {
-    const r = spawnSync(process.env.CLAUDE_CLI_BIN || "claude", ["--version"], {
-      encoding: "utf8",
-      timeout: 5_000,
+  checks.claude = await new Promise<"ok" | string>((resolveResult) => {
+    const child = spawn(process.env.CLAUDE_CLI_BIN || "claude", ["--version"], {
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    checks.claude = r.status === 0 ? "ok" : `exit=${r.status}: ${(r.stderr || r.stdout || "").trim()}`;
-  } catch (e) {
-    checks.claude = (e as Error).message;
-  }
+    let out = "";
+    let err = "";
+    child.stdout?.on("data", (c) => (out += String(c)));
+    child.stderr?.on("data", (c) => (err += String(c)));
+    const t = setTimeout(() => {
+      child.kill();
+      resolveResult("timeout");
+    }, 5_000);
+    child.on("close", (code) => {
+      clearTimeout(t);
+      resolveResult(code === 0 ? "ok" : `exit=${code}: ${(err || out).trim()}`);
+    });
+    child.on("error", (e) => {
+      clearTimeout(t);
+      resolveResult(`spawn: ${e.message}`);
+    });
+  });
 
   return NextResponse.json(checks);
 }
