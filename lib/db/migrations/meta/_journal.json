@@ -8,6 +8,13 @@
       "when": 1777511249284,
       "tag": "0000_bright_zodiak",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1777584304663,
+      "tag": "0001_special_gorilla_man",
+      "breakpoints": true
     }
   ]
 }

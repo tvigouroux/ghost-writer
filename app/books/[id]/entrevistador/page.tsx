@@ -14,6 +14,7 @@ import {
 } from "@/lib/actions/interviews";
 import { CreateSessionForm } from "./create-session-form";
 import { CreateTemplateForm } from "./create-template-form";
+import { SessionAdminButtons } from "./session-admin-buttons";
 import { SessionLinkButton } from "./session-link-button";
 
 export default async function InterviewerPage({
@@ -171,6 +172,7 @@ export default async function InterviewerPage({
                         : undefined
                     }
                   />
+                  <SessionAdminButtons sessionId={s.id} />
                 </li>
               );
             })}

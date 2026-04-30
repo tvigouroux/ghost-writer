@@ -20,20 +20,34 @@ export function Room({
   const [draft, setDraft] = useState("");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // Last action attempted, captured so the "Reintentar" button can replay it.
+  const [lastAttempt, setLastAttempt] = useState<null | (() => Promise<RoomState>)>(
+    null,
+  );
 
   const closed = state.status === "closed" || state.status === "delivered";
   const hasInterviewerTurn = state.turns.some((t) => t.role === "interviewer");
 
-  function withTransition(fn: () => Promise<RoomState>) {
+  function withTransition(
+    fn: () => Promise<RoomState>,
+    onSuccess?: () => void,
+  ) {
     setError(null);
+    setLastAttempt(() => fn);
     startTransition(async () => {
       try {
         const next = await fn();
         setState(next);
+        setLastAttempt(null);
+        onSuccess?.();
       } catch (err) {
         setError((err as Error).message);
       }
     });
+  }
+
+  function retry() {
+    if (lastAttempt) withTransition(lastAttempt);
   }
 
   return (
@@ -86,8 +100,12 @@ export function Room({
             e.preventDefault();
             const text = draft.trim();
             if (!text) return;
-            setDraft("");
-            withTransition(() => submitTextTurnAction(token, text));
+            // Keep draft until we know the action succeeded; if it fails, the
+            // interviewee shouldn't have to retype.
+            withTransition(
+              () => submitTextTurnAction(token, text),
+              () => setDraft(""),
+            );
           }}
         >
           <textarea
@@ -134,7 +152,23 @@ export function Room({
       ) : null}
 
       {error ? (
-        <p className="mt-4 text-xs text-red-700 dark:text-red-300">{error}</p>
+        <div className="mt-4 rounded border border-red-300 bg-red-50 p-3 text-xs text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+          <p>
+            Hubo un problema preparando la próxima pregunta. Tu respuesta quedó
+            guardada arriba, no la pierdas.
+          </p>
+          <p className="mt-1 break-words font-mono text-[10px] opacity-70">{error}</p>
+          {lastAttempt ? (
+            <button
+              type="button"
+              onClick={retry}
+              disabled={isPending}
+              className="mt-2 rounded border border-red-400 bg-white px-3 py-1 text-[11px] font-medium uppercase tracking-wider text-red-700 hover:bg-red-100 disabled:opacity-50 dark:border-red-700 dark:bg-red-950 dark:text-red-200 dark:hover:bg-red-900"
+            >
+              {isPending ? "reintentando…" : "reintentar"}
+            </button>
+          ) : null}
+        </div>
       ) : null}
 
       <footer className="mt-auto pt-12 text-center text-[10px] text-stone-400">

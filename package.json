@@ -16,7 +16,8 @@
     "test:repo": "tsx scripts/test-repo.ts",
     "validate:templates": "tsx scripts/validate-templates.ts",
     "db:inspect": "tsx scripts/db-inspect.ts",
-    "db:make-token": "tsx scripts/db-make-token.ts"
+    "db:make-token": "tsx scripts/db-make-token.ts",
+    "db:reset-session": "tsx scripts/db-reset-session.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",

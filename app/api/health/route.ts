@@ -2,12 +2,18 @@ import spawn from "cross-spawn";
 import { NextResponse } from "next/server";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { MODELS } from "@/lib/llm/models";
 
 export async function GET() {
   const checks: Record<string, "ok" | string> = {};
 
   const dbPath = resolve(process.env.DATABASE_URL ?? "data/ghost-writer.sqlite");
   checks.db = existsSync(dbPath) ? "ok" : `missing: ${dbPath}`;
+
+  // The CLI `--version` is a binary-presence ping; it doesn't actually invoke
+  // a model. The health-tier model assignment (Haiku) only matters once we
+  // upgrade this probe to a real round-trip in the future.
+  checks.healthModel = MODELS.health;
 
   checks.claude = await new Promise<"ok" | string>((resolveResult) => {
     const child = spawn(process.env.CLAUDE_CLI_BIN || "claude", ["--version"], {

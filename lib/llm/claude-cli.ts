@@ -1,4 +1,6 @@
 import spawn from "cross-spawn";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 // This module is intrinsically server-only (subprocess), but we don't import
 // "server-only" so the smoke-test script can require it directly. We use
@@ -22,11 +24,35 @@ export class ClaudeCliClient implements LLMClient {
   private readonly bin: string;
 
   constructor(bin?: string) {
-    // cross-spawn handles `.cmd` resolution on Windows; pass the bare name.
-    this.bin = bin ?? process.env.CLAUDE_CLI_BIN ?? "claude";
+    const explicit = bin ?? process.env.CLAUDE_CLI_BIN;
+    if (explicit) {
+      this.bin = explicit;
+    } else {
+      // Probe well-known npm-global locations before falling back to PATH.
+      // Next.js's dev server may be launched from a shell whose PATH does not
+      // include %APPDATA%\npm (Windows) or ~/.npm-global/bin (POSIX), even
+      // though the user can run `claude` from their terminal.
+      this.bin = probeClaudeBin() ?? "claude";
+    }
   }
 
   async complete(opts: CompleteOptions): Promise<CompleteResult> {
+    return this.completeOnce(opts).catch(async (err) => {
+      // Single retry for transient errors. Non-transient (auth, JSON parse,
+      // user abort) propagate immediately.
+      if (isTransient(err)) {
+        const backoffMs = 2000;
+        console.warn(
+          `[claude-cli] transient error: ${(err as Error).message}; retrying in ${backoffMs}ms`,
+        );
+        await new Promise((r) => setTimeout(r, backoffMs));
+        return this.completeOnce(opts);
+      }
+      throw err;
+    });
+  }
+
+  private async completeOnce(opts: CompleteOptions): Promise<CompleteResult> {
     const args = [
       "-p",
       "--output-format",
@@ -36,7 +62,11 @@ export class ClaudeCliClient implements LLMClient {
       "--append-system-prompt",
       opts.systemPrompt + (opts.appendSystem ? "\n\n" + opts.appendSystem : ""),
     ];
+    if (opts.model) {
+      args.push("--model", opts.model);
+    }
 
+    const timeoutMs = Number(process.env.CLAUDE_CLI_TIMEOUT_MS) || 5 * 60 * 1000;
     const start = Date.now();
     return new Promise<CompleteResult>((resolveResult, reject) => {
       const child = spawn(this.bin, args, {
@@ -53,6 +83,15 @@ export class ClaudeCliClient implements LLMClient {
       const onAbort = () => child.kill("SIGTERM");
       opts.signal?.addEventListener("abort", onAbort, { once: true });
 
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGTERM");
+        // SIGKILL fallback if the process refuses to die.
+        setTimeout(() => child.kill("SIGKILL"), 2000).unref();
+      }, timeoutMs);
+      timer.unref();
+
       let stdout = "";
       let stderr = "";
 
@@ -62,12 +101,18 @@ export class ClaudeCliClient implements LLMClient {
       stderrStream.on("data", (chunk: string) => (stderr += chunk));
 
       child.on("error", (err) => {
+        clearTimeout(timer);
         opts.signal?.removeEventListener("abort", onAbort);
         reject(new LLMError(`failed to spawn claude CLI: ${err.message}`, err));
       });
 
       child.on("close", (code) => {
+        clearTimeout(timer);
         opts.signal?.removeEventListener("abort", onAbort);
+        if (timedOut) {
+          reject(new LLMError(`claude CLI timed out after ${timeoutMs}ms`));
+          return;
+        }
         if (code !== 0) {
           reject(
             new LLMError(
@@ -91,6 +136,47 @@ export class ClaudeCliClient implements LLMClient {
       stdinStream.end();
     });
   }
+}
+
+/**
+ * Identify errors worth a single retry. Transient = network / rate-limit /
+ * spawn race / parse glitch. Non-transient = auth, model output not JSON,
+ * user abort.
+ */
+function isTransient(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  if (msg.includes("rate_limit") || msg.includes("rate limit")) return true;
+  if (msg.includes("eai_again") || msg.includes("econnreset")) return true;
+  if (msg.includes("etimedout") || msg.includes("timed out")) return true;
+  if (msg.includes("503") || msg.includes("502") || msg.includes("504")) return true;
+  return false;
+}
+
+/**
+ * Best-effort probe for the Claude CLI binary in well-known install locations.
+ * Returns an absolute path if found, otherwise null.
+ */
+function probeClaudeBin(): string | null {
+  const candidates: string[] = [];
+  if (process.platform === "win32") {
+    const appdata = process.env.APPDATA;
+    if (appdata) candidates.push(join(appdata, "npm", "claude.cmd"));
+    const programFiles = process.env["ProgramFiles"];
+    if (programFiles) candidates.push(join(programFiles, "nodejs", "claude.cmd"));
+  } else {
+    const home = process.env.HOME;
+    if (home) {
+      candidates.push(join(home, ".npm-global", "bin", "claude"));
+      candidates.push(join(home, ".local", "bin", "claude"));
+    }
+    candidates.push("/usr/local/bin/claude");
+    candidates.push("/opt/homebrew/bin/claude");
+  }
+  for (const c of candidates) {
+    if (existsSync(c)) return c;
+  }
+  return null;
 }
 
 /**

@@ -4,6 +4,34 @@ import { useMemo, useState } from "react";
 import type { RepoMdFile } from "@/lib/actions/import-template";
 
 /**
+ * For an interview template, these patterns map to files that typically *do*
+ * help the interviewer agent. They're suggestions, not requirements — the
+ * "Sugerir selección" button pre-fills the checkboxes with whatever matches.
+ */
+const RECOMMENDED_PATTERNS: { needle: string; reason: string }[] = [
+  { needle: "outline", reason: "outline" },
+  { needle: "acerca-de-mi", reason: "bio del autor" },
+  { needle: "claude.md", reason: "reglas del libro" },
+  { needle: "respuestas", reason: "respuestas previas (evita pedir recap)" },
+  { needle: "capitulos/", reason: "capítulos que alimentan el bloque" },
+];
+
+/**
+ * Files that the interviewer mode auto-filters out at prompt time (see
+ * INTERVIEWER_CONTEXT_DENYLIST). We grey them out in the picker so the author
+ * knows their selection won't reach the model — but we don't hide them, in
+ * case the author wants to keep the marking for other modes later.
+ */
+const DENIED_PATTERNS = ["notas/inconsistencias", "notas/permisos", "notas/cronologia"];
+
+function classify(path: string): "recommended" | "denied" | "neutral" {
+  const lower = path.toLowerCase();
+  if (DENIED_PATTERNS.some((p) => lower.includes(p))) return "denied";
+  if (RECOMMENDED_PATTERNS.some((p) => lower.includes(p.needle))) return "recommended";
+  return "neutral";
+}
+
+/**
  * Searchable, grouped-by-directory checkbox picker. Authoritative state lives
  * in the parent (a Set<string> of selected paths) so the form can read it on
  * submit.
@@ -18,6 +46,14 @@ export function ContextFilesPicker({
   onChange: (next: Set<string>) => void;
 }) {
   const [filter, setFilter] = useState("");
+
+  function suggestSelection() {
+    const next = new Set<string>();
+    for (const f of files) {
+      if (classify(f.path) === "recommended") next.add(f.path);
+    }
+    onChange(next);
+  }
 
   const grouped = useMemo(() => {
     const filtered = filter
@@ -57,6 +93,23 @@ export function ContextFilesPicker({
 
   return (
     <div className="rounded border border-stone-300 bg-white dark:border-stone-700 dark:bg-stone-900">
+      <div className="border-b border-stone-200 bg-stone-50 px-3 py-2 text-[11px] leading-relaxed text-stone-600 dark:border-stone-800 dark:bg-stone-950 dark:text-stone-400">
+        <strong>Recomendado para entrevistador:</strong>{" "}
+        <code className="font-mono">outline.md</code>,{" "}
+        <code className="font-mono">acerca-de-mi.md</code>,{" "}
+        <code className="font-mono">CLAUDE.md</code> del libro, y archivos{" "}
+        <code className="font-mono">*-respuestas.md</code> de entrevistas previas
+        (para evitar pedir recap). Suma los <code className="font-mono">capitulos/</code>{" "}
+        que se relacionen con los bloques de esta entrevista.{" "}
+        <strong className="text-stone-700 dark:text-stone-300">
+          Se filtran automáticamente
+        </strong>{" "}
+        (no llegan al modelo aunque los marques):{" "}
+        <code className="font-mono">notas/inconsistencias.md</code>,{" "}
+        <code className="font-mono">notas/permisos.md</code>,{" "}
+        <code className="font-mono">notas/cronologia*.md</code> — esos pertenecen
+        a otros modos.
+      </div>
       <div className="flex flex-wrap items-center gap-2 border-b border-stone-200 px-3 py-2 dark:border-stone-800">
         <input
           value={filter}
@@ -67,6 +120,13 @@ export function ContextFilesPicker({
         <span className="text-xs text-stone-500">
           {selected.size} de {files.length} seleccionados
         </span>
+        <button
+          type="button"
+          onClick={suggestSelection}
+          className="rounded border border-stone-400 px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-stone-200 dark:border-stone-600 dark:hover:bg-stone-800"
+        >
+          sugerir
+        </button>
         {selected.size > 0 ? (
           <button
             type="button"
@@ -110,18 +170,42 @@ export function ContextFilesPicker({
                   <span className="text-stone-400">({group.length})</span>
                 </legend>
                 <ul className="pl-5">
-                  {group.map((f) => (
-                    <li key={f.path}>
-                      <label className="flex items-center gap-2 py-0.5 text-xs hover:bg-stone-100 dark:hover:bg-stone-800">
-                        <input
-                          type="checkbox"
-                          checked={selected.has(f.path)}
-                          onChange={() => toggle(f.path)}
-                        />
-                        <span className="font-mono">{f.fileName}</span>
-                      </label>
-                    </li>
-                  ))}
+                  {group.map((f) => {
+                    const cls = classify(f.path);
+                    return (
+                      <li key={f.path}>
+                        <label
+                          className={`flex items-center gap-2 py-0.5 text-xs hover:bg-stone-100 dark:hover:bg-stone-800 ${
+                            cls === "denied" ? "opacity-50" : ""
+                          }`}
+                          title={
+                            cls === "denied"
+                              ? "Filtrado automáticamente para el modo entrevistador"
+                              : cls === "recommended"
+                              ? "Recomendado para el modo entrevistador"
+                              : ""
+                          }
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selected.has(f.path)}
+                            onChange={() => toggle(f.path)}
+                          />
+                          <span className="font-mono">{f.fileName}</span>
+                          {cls === "recommended" ? (
+                            <span className="text-[9px] uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                              recomendado
+                            </span>
+                          ) : null}
+                          {cls === "denied" ? (
+                            <span className="text-[9px] uppercase tracking-wider text-stone-400">
+                              filtrado
+                            </span>
+                          ) : null}
+                        </label>
+                      </li>
+                    );
+                  })}
                 </ul>
               </fieldset>
             );

@@ -216,6 +216,108 @@ export async function regenerateSessionLinkAction(
   return { sessionId, link };
 }
 
+/**
+ * Force-recompute and persist the session's context_summary. Used after the
+ * author edits the book repo (added entries to outline.md, added a notes
+ * file, etc.) to refresh what the interviewer agent knows.
+ */
+export async function recalculateSessionSummaryAction(
+  sessionId: string,
+): Promise<void> {
+  const session = await db.query.sessions.findFirst({
+    where: eq(schema.sessions.id, sessionId),
+  });
+  if (!session) throw new Error("session not found");
+  // Clear it so the next ensure-call recomputes.
+  await db
+    .update(schema.sessions)
+    .set({ contextSummary: null, contextSummaryAt: null })
+    .where(eq(schema.sessions.id, sessionId));
+  // Re-trigger immediately so the wait happens here, not on the next turn.
+  const { ensureSessionContextSummary } = await import("./turns");
+  await ensureSessionContextSummary(sessionId);
+
+  const template = await db.query.interviewTemplates.findFirst({
+    where: eq(schema.interviewTemplates.id, session.templateId),
+  });
+  if (template) revalidatePath(`/books/${template.bookId}/entrevistador`);
+}
+
+/**
+ * Wipe a session's turns and output so the room reopens fresh: status→draft,
+ * block_coverage→all "pending", current_block_id→first block, startedAt /
+ * closedAt cleared, JTI rotated so the previous link stops working. Useful
+ * when the author wants to redo the interview after iterating on the prompt
+ * or context.
+ */
+export async function resetSessionAction(sessionId: string): Promise<void> {
+  const session = await db.query.sessions.findFirst({
+    where: eq(schema.sessions.id, sessionId),
+  });
+  if (!session) throw new Error("session not found");
+
+  const template = await db.query.interviewTemplates.findFirst({
+    where: eq(schema.interviewTemplates.id, session.templateId),
+  });
+  if (!template) throw new Error("template not found");
+  const book = await getBookById(template.bookId);
+  if (!book) throw new Error("book not found");
+
+  const blocks = JSON.parse(template.guideBlocks) as { id: string }[];
+  const initialCoverage: Record<string, "pending"> = {};
+  for (const b of blocks) initialCoverage[b.id] = "pending";
+
+  // Mint a new token so the old link is invalidated by jti rotation.
+  const token = await signIntervieweeToken({
+    sid: session.id,
+    iid: session.intervieweeId,
+  });
+
+  await db.delete(schema.turns).where(eq(schema.turns.sessionId, sessionId));
+  await db.delete(schema.outputs).where(eq(schema.outputs.sessionId, sessionId));
+  await db
+    .update(schema.sessions)
+    .set({
+      status: "draft",
+      currentBlockId: blocks[0]?.id ?? null,
+      blockCoverage: JSON.stringify(initialCoverage),
+      startedAt: null,
+      closedAt: null,
+      tokenJti: token.jti,
+      tokenExpiresAt: token.expiresAt,
+      // Clear the cached summary too so the next open recomputes against
+      // whatever the repo looks like now.
+      contextSummary: null,
+      contextSummaryAt: null,
+    })
+    .where(eq(schema.sessions.id, sessionId));
+
+  revalidatePath(`/books/${template.bookId}/entrevistador`);
+}
+
+/**
+ * Hard-delete a session and everything tied to it (turns, output). The
+ * interviewee record stays — sessions can be reissued for the same person.
+ */
+export async function deleteSessionAction(sessionId: string): Promise<void> {
+  const session = await db.query.sessions.findFirst({
+    where: eq(schema.sessions.id, sessionId),
+  });
+  if (!session) return;
+  const template = await db.query.interviewTemplates.findFirst({
+    where: eq(schema.interviewTemplates.id, session.templateId),
+  });
+  if (!template) throw new Error("template not found");
+  const book = await getBookById(template.bookId);
+  if (!book) throw new Error("book not found");
+
+  await db.delete(schema.outputs).where(eq(schema.outputs.sessionId, sessionId));
+  await db.delete(schema.turns).where(eq(schema.turns.sessionId, sessionId));
+  await db.delete(schema.sessions).where(eq(schema.sessions.id, sessionId));
+
+  revalidatePath(`/books/${template.bookId}/entrevistador`);
+}
+
 export async function listInterviewTemplates(bookId: string) {
   return db.query.interviewTemplates.findMany({
     where: eq(schema.interviewTemplates.bookId, bookId),

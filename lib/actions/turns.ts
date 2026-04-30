@@ -7,9 +7,17 @@ import { ulid } from "ulid";
 import { z } from "zod";
 import { verifyIntervieweeToken } from "../auth/interviewee";
 import { db, schema } from "../db/client";
-import { renderInterviewOutput, runInterviewerTurn } from "../interview-engine";
+import {
+  renderInterviewOutput,
+  runInterviewerTurn,
+  summarizeContext,
+} from "../interview-engine";
 import { RepoReader } from "../repo/reader";
-import type { BlockStatus, GuideBlock } from "../llm/modes/interviewer";
+import {
+  isContextDenied,
+  type BlockStatus,
+  type GuideBlock,
+} from "../llm/modes/interviewer";
 
 /**
  * State the interviewee UI needs to render the room.
@@ -205,19 +213,79 @@ async function renderAndStoreOutput(
   }
 }
 
+async function readBookClaudeMd(bookLocalPath: string): Promise<string> {
+  const reader = new RepoReader(bookLocalPath);
+  try {
+    return await reader.readFile("CLAUDE.md");
+  } catch {
+    return "";
+  }
+}
+
 async function readBookContext(
   bookLocalPath: string,
   contextFiles: string[],
 ): Promise<{ claudeMd: string; contextFiles: { path: string; content: string }[] }> {
   const reader = new RepoReader(bookLocalPath);
-  let claudeMd = "";
-  try {
-    claudeMd = await reader.readFile("CLAUDE.md");
-  } catch {
-    // book repo without CLAUDE.md is fine; just use empty string.
-  }
+  const claudeMd = await readBookClaudeMd(bookLocalPath).catch(() => "");
   const ctx = contextFiles.length > 0 ? await reader.readFiles(contextFiles) : [];
   return { claudeMd, contextFiles: ctx };
+}
+
+/**
+ * Compute and persist sessions.context_summary for the given session if it
+ * doesn't have one yet. Idempotent. Returns the (current or freshly stored)
+ * summary string. Exported so other server actions (e.g. "Recalcular
+ * resumen") can trigger it without copying the body.
+ */
+export async function ensureSessionContextSummary(sessionId: string): Promise<string | null> {
+  const session = await db.query.sessions.findFirst({
+    where: eq(schema.sessions.id, sessionId),
+  });
+  if (!session) throw new Error("session not found");
+  if (session.contextSummary) return session.contextSummary;
+
+  const template = await db.query.interviewTemplates.findFirst({
+    where: eq(schema.interviewTemplates.id, session.templateId),
+  });
+  if (!template) throw new Error("template not found");
+  const book = await db.query.books.findFirst({
+    where: eq(schema.books.id, template.bookId),
+  });
+  if (!book) throw new Error("book not found");
+  const interviewee = await db.query.interviewees.findFirst({
+    where: eq(schema.interviewees.id, session.intervieweeId),
+  });
+  if (!interviewee) throw new Error("interviewee not found");
+
+  const blocks = JSON.parse(template.guideBlocks) as GuideBlock[];
+  const allPaths = JSON.parse(template.contextFiles) as string[];
+  // Apply the interviewer mode denylist before summarizing — no point in
+  // burning tokens digesting files the interviewer wouldn't see anyway.
+  const filteredPaths = allPaths.filter((p) => !isContextDenied(p));
+  const { claudeMd, contextFiles } = await readBookContext(book.repoLocalPath, filteredPaths);
+
+  const summary = await summarizeContext({
+    bookLanguage: book.defaultLanguage,
+    bookClaudeMd: claudeMd,
+    templateName: template.name,
+    templateSystemPrompt: template.systemPrompt,
+    intervieweeName: interviewee.displayName,
+    intervieweeRelation: interviewee.relation ?? null,
+    blocks,
+    contextFiles,
+  });
+
+  const summaryJson = JSON.stringify(summary);
+  await db
+    .update(schema.sessions)
+    .set({
+      contextSummary: summaryJson,
+      contextSummaryAt: Date.now(),
+    })
+    .where(eq(schema.sessions.id, sessionId));
+
+  return summaryJson;
 }
 
 /**
@@ -243,20 +311,23 @@ export async function startOrContinueAction(token: string): Promise<RoomState> {
       .where(eq(schema.sessions.id, session.id));
   }
 
+  // Compute the per-session context summary if missing. The cost lives on
+  // the first turn; from here on every turn reuses it.
+  const contextSummary = await ensureSessionContextSummary(session.id);
+
   const blocks = JSON.parse(template.guideBlocks) as GuideBlock[];
   const coverage = JSON.parse(session.blockCoverage ?? "{}") as Record<string, BlockStatus>;
-  const contextFilesPaths = JSON.parse(template.contextFiles) as string[];
 
-  const { claudeMd, contextFiles } = await readBookContext(
-    book.repoLocalPath,
-    contextFilesPaths,
-  );
+  const claudeMd = await readBookClaudeMd(book.repoLocalPath);
 
+  // We pass empty contextFiles when we have a summary; the prompt builder
+  // uses one or the other, not both.
   const result = await runInterviewerTurn({
     bookLanguage: book.defaultLanguage,
     bookClaudeMd: claudeMd,
     templateSystemPrompt: template.systemPrompt,
-    contextFiles,
+    contextFiles: [],
+    contextSummary: contextSummary ?? undefined,
     blocks,
     blockCoverage: coverage,
     currentBlockId: session.currentBlockId ?? blocks[0]?.id ?? "",
@@ -319,11 +390,8 @@ export async function submitTextTurnAction(
 
   const blocks = JSON.parse(template.guideBlocks) as GuideBlock[];
   const coverage = JSON.parse(session.blockCoverage ?? "{}") as Record<string, BlockStatus>;
-  const contextFilesPaths = JSON.parse(template.contextFiles) as string[];
-  const { claudeMd, contextFiles } = await readBookContext(
-    book.repoLocalPath,
-    contextFilesPaths,
-  );
+  const contextSummary = await ensureSessionContextSummary(session.id);
+  const claudeMd = await readBookClaudeMd(book.repoLocalPath);
 
   const history = [
     ...existingTurns.map((t) => ({
@@ -337,7 +405,8 @@ export async function submitTextTurnAction(
     bookLanguage: book.defaultLanguage,
     bookClaudeMd: claudeMd,
     templateSystemPrompt: template.systemPrompt,
-    contextFiles,
+    contextFiles: [],
+    contextSummary: contextSummary ?? undefined,
     blocks,
     blockCoverage: coverage,
     currentBlockId: session.currentBlockId ?? blocks[0]?.id ?? "",

@@ -84,6 +84,12 @@ export const sessions = sqliteTable("sessions", {
   blockCoverage: text("block_coverage"),
   startedAt: integer("started_at"),
   closedAt: integer("closed_at"),
+  // JSON dump of the summarizer's output for this session. Computed once on
+  // first room-open and reused on every turn instead of re-sending the raw
+  // context_files. Null until summarized; null also disables the summary path
+  // (legacy / fallback to raw context).
+  contextSummary: text("context_summary"),
+  contextSummaryAt: integer("context_summary_at"),
   createdAt: integer("created_at").notNull().default(sql`(unixepoch() * 1000)`),
 });
 

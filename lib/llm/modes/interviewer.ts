@@ -1,4 +1,69 @@
 /**
+ * Paths the Interviewer mode does NOT need in its context, even if the author
+ * marked them in the template. These belong to other modes:
+ *   - notas/inconsistencias.md    → Researcher mode
+ *   - notas/permisos.md           → Writer mode (manuscript assembly)
+ *   - notas/cronologia-deportiva.md → Researcher mode (factual cross-check;
+ *     redundant with outline.md for the interviewer)
+ *
+ * Match is case-insensitive substring on the repo-relative path. The author's
+ * template stays untouched on disk; the filter applies only at the moment of
+ * building the prompt.
+ */
+export const INTERVIEWER_CONTEXT_DENYLIST = [
+  "notas/inconsistencias",
+  "notas/permisos",
+  "notas/cronologia",
+];
+
+/**
+ * Render a stored ContextSummary JSON as a human-readable section the
+ * interviewer prompt can consume. Falls back to the raw JSON if the input
+ * isn't parseable (defensive: a malformed row should still let the turn run,
+ * just less efficiently).
+ */
+function renderSummaryAsContext(summaryJson: string): string {
+  let parsed: any;
+  try {
+    parsed = JSON.parse(summaryJson);
+  } catch {
+    return `(context summary present but unparseable; raw JSON follows)\n${summaryJson}`;
+  }
+  const lines: string[] = ["[curated context — pre-computed summary]"];
+  if (parsed.general_notes?.length) {
+    lines.push("\nGeneral notes:");
+    for (const n of parsed.general_notes) lines.push(`  - ${n}`);
+  }
+  if (parsed.interviewee_specific_notes?.length) {
+    lines.push("\nNotes about this interviewee:");
+    for (const n of parsed.interviewee_specific_notes) lines.push(`  - ${n}`);
+  }
+  if (parsed.block_summaries) {
+    lines.push("\nPer-block coverage from prior materials:");
+    for (const [bid, bs] of Object.entries(parsed.block_summaries) as [string, any][]) {
+      lines.push(`\n  ${bid} — ${bs.coverage_in_context ?? "?"}`);
+      if (bs.key_facts?.length) {
+        lines.push("    facts:");
+        for (const f of bs.key_facts) lines.push(`      - ${f}`);
+      }
+      if (bs.open_threads?.length) {
+        lines.push("    open threads:");
+        for (const t of bs.open_threads) lines.push(`      - ${t}`);
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
+export function isContextDenied(
+  relPath: string,
+  denylist: readonly string[] = INTERVIEWER_CONTEXT_DENYLIST,
+): boolean {
+  const lower = relPath.toLowerCase();
+  return denylist.some((needle) => lower.includes(needle.toLowerCase()));
+}
+
+/**
  * Interviewer mode — system prompt and turn-loop helpers.
  *
  * Responsibilities:
@@ -38,6 +103,14 @@ export interface InterviewerTurnInput {
   bookClaudeMd: string;
   templateSystemPrompt: string;
   contextFiles: { path: string; content: string }[];
+  /**
+   * Pre-computed structured summary of the curated context. When present, it
+   * replaces the raw context_files in the prompt — much smaller, just as
+   * informative for picking the next question. Persisted on the session row
+   * so every turn after the first reuses it. Stringified JSON of the
+   * summarizer output (see lib/llm/modes/summarizer.ts).
+   */
+  contextSummary?: string;
   blocks: GuideBlock[];
   blockCoverage: Record<string, BlockStatus>;
   currentBlockId: string;
@@ -79,14 +152,54 @@ NON-NEGOTIABLE RULES
 - The interviewee MUST NOT see the book draft. Do not quote book context verbatim back at them.
 - Tone: warm, attentive, never condescending. Adapt naturally to the language's register.
 
+USING THE CURATED CONTEXT (critical)
+The "Curated context" section of the user prompt is NOT optional reference
+material. It is material the author has already collected from the interviewee
+(or about them) in prior sessions: previous interview transcripts, notes,
+the book outline, the chronology. **Treat that material as already known to
+both you and the interviewee.**
+
+Before formulating each question:
+
+1. Look at the current block (current_block_id + its objective).
+2. Skim the curated context for material that already addresses that
+   block's objective.
+3. If the block is substantively covered by the existing material:
+   - Set its block_coverage to "covered" (or "partial" if real gaps remain).
+   - Do NOT ask the interviewee to recap what they already told the author.
+   - Instead either:
+       (a) ask one specific clarifying / deepening question that targets a
+           genuine gap or contradiction in the existing material, OR
+       (b) advance to the next block by setting current_block_id to it and
+           emitting that block's opening question.
+4. Only ask a "blank-slate" opening question for a block when the curated
+   context contains nothing relevant to it.
+
+Asking the interviewee to repeat material that is already in the curated
+context wastes their time and is the single biggest failure mode of this
+mode. When in doubt, advance.
+
 OUTPUT FORMAT (strict)
-Return a single JSON object and nothing else, with this exact shape:
+Return a single JSON object and nothing else. No prose before, no prose
+after, no code fences, no greeting, no commentary. The response MUST
+start with the character \`{\` and MUST end with the character \`}\`.
+
+Required shape:
 {
   "next_question": "<one question, in the interaction language>",
   "block_coverage": { "<block_id>": "pending" | "partial" | "covered" },
   "current_block_id": "<block_id of the block the next question targets>",
   "should_close": false
-}`;
+}
+
+Concrete example of a well-formed reply (the question is illustrative;
+your real one comes from the current block's objective):
+{"next_question":"¿Te acuerdas de cómo nos conocimos?","block_coverage":{"block-1":"pending","block-2":"pending"},"current_block_id":"block-1","should_close":false}
+
+If you find yourself wanting to write a paragraph addressing the author
+or summarizing the situation: stop. The author and the interviewee are
+two different people; the interviewee never sees your reasoning. Put the
+single question into "next_question" and emit only the JSON.`;
 }
 
 /**
@@ -94,26 +207,31 @@ Return a single JSON object and nothing else, with this exact shape:
  * spawning the CLI.
  */
 export function buildInterviewerUserPrompt(input: InterviewerTurnInput): string {
-  const ctx =
-    input.contextFiles.length > 0
-      ? input.contextFiles
-          .map((f) => `### ${f.path}\n\n${f.content}`)
-          .join("\n\n---\n\n")
-      : "(no additional context files)";
+  // Prefer the precomputed summary when available — it's a few KB instead of
+  // hundreds. Fall back to raw files when there's no summary yet (sessions
+  // created before O.2, or summarizer fallback).
+  const ctx = input.contextSummary
+    ? renderSummaryAsContext(input.contextSummary)
+    : input.contextFiles.length > 0
+    ? input.contextFiles.map((f) => `### ${f.path}\n${f.content}`).join("\n\n")
+    : "(no additional context files)";
 
+  // Compact: one line per block. seed_questions inline. Skip empty fields.
   const blocks = input.blocks
-    .map(
-      (b) =>
-        `- id: ${b.id}\n  title: ${b.title}\n  objective: ${b.objective}\n  must_cover: ${b.mustCover}\n  seed_questions: ${JSON.stringify(b.seedQuestions ?? [])}`,
-    )
+    .map((b) => {
+      const seeds = b.seedQuestions?.length ? ` seeds=${JSON.stringify(b.seedQuestions)}` : "";
+      const must = b.mustCover ? " must_cover" : "";
+      return `- ${b.id}${must} | ${b.title} | ${b.objective}${seeds}`;
+    })
     .join("\n");
 
+  // Compact: single newline between turns, abbreviated role labels.
   const history =
     input.history.length === 0
       ? "(the interview has not started: emit the opening question for the current block)"
       : input.history
-          .map((t) => `${t.role === "interviewer" ? "Interviewer" : "Interviewee"}: ${t.text}`)
-          .join("\n\n");
+          .map((t) => `${t.role === "interviewer" ? "Q" : "A"}: ${t.text}`)
+          .join("\n");
 
   return `## Book rules (CLAUDE.md of the book repo)
 
@@ -143,5 +261,23 @@ ${history}
 ## Task
 
 Produce the JSON response described in the system prompt. The "next_question"
-field must be written in the book's interaction language.`;
+field must be written in the book's interaction language.
+
+REMINDERS — read these RIGHT BEFORE you write your reply:
+
+(A) The "Curated context" above is material the interviewee already provided
+in earlier sessions. It is ALREADY KNOWN to both you and the interviewee.
+Asking them to recap it is the failure mode to avoid. For the current block
+(${input.currentBlockId}):
+  - Skim the curated context for material that addresses this block's
+    objective.
+  - If you find substantial coverage there, set this block's status to
+    "covered" (or "partial") in block_coverage and either advance to the
+    next block in the list or ask one specific deepening question that
+    targets a real gap.
+  - Only ask a "give me the inventory / start from scratch" question if the
+    curated context truly contains nothing on this topic.
+
+(B) Output format: your reply MUST begin with \`{\` and end with \`}\`. No
+prose addressed to the author. No narration. Just the JSON object.`;
 }

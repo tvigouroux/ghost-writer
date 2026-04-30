@@ -18,6 +18,11 @@ export interface CompleteOptions {
   appendSystem?: string;
   /** Soft cap for the model, in tokens. */
   maxOutputTokens?: number;
+  /**
+   * Model to use. CLI alias (e.g. "sonnet", "haiku", "opus") or full id
+   * (e.g. "claude-sonnet-4-6"). Omit to use the CLI's default model.
+   */
+  model?: string;
   /** Abort handle. */
   signal?: AbortSignal;
 }
