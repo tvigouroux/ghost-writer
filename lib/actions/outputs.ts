@@ -5,10 +5,13 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { ulid } from "ulid";
+import { z } from "zod";
 import { renderInterviewOutput } from "../interview-engine";
 import { getCurrentAuthor } from "../auth/author";
 import { db, schema } from "../db/client";
+import { commitAndPush } from "../repo/committer";
 import { RepoReader } from "../repo/reader";
+import { RepoWriter } from "../repo/writer";
 import type { BlockStatus, GuideBlock } from "../llm/modes/interviewer";
 
 /**
@@ -142,6 +145,106 @@ export async function getOutputForAuthor(outputId: string) {
     template,
     book,
     interviewee,
+  };
+}
+
+const DepositSchema = z.object({
+  outputId: z.string().min(1),
+  /** Repo-relative directory, e.g. "entrevistas/terceros". */
+  relDir: z.string().min(1).max(200),
+  /** Slug used in the filename (we prepend `_pendiente-` and append `.md`). */
+  slug: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/i, "use kebab-case"),
+});
+
+/**
+ * Stage the processed transcript inside the local clone as
+ * `<relDir>/_pendiente-<slug>.md`. Does NOT commit. The author moves /
+ * renames / commits from their workstation. This is the original "Claude
+ * never commits" path.
+ */
+export async function depositPendingAction(input: {
+  outputId: string;
+  relDir: string;
+  slug: string;
+}): Promise<{ deliveredMdPath: string }> {
+  const parsed = DepositSchema.parse(input);
+  const data = await getOutputForAuthor(parsed.outputId);
+  if (!data) throw new Error("output not found");
+
+  const writer = new RepoWriter(data.book.repoLocalPath);
+  const abs = await writer.writePending({
+    relDir: parsed.relDir,
+    slug: parsed.slug,
+    content: data.output.processedMd,
+    overwrite: true,
+  });
+  // Repo-relative for display.
+  const rel = abs
+    .replace(data.book.repoLocalPath, "")
+    .replace(/^[\\/]/, "")
+    .replace(/\\/g, "/");
+
+  await db
+    .update(schema.outputs)
+    .set({
+      deliveredMdPath: rel,
+      deliveredAt: Date.now(),
+      approvedByAuthor: 1,
+    })
+    .where(eq(schema.outputs.id, parsed.outputId));
+
+  revalidatePath(`/books/${data.book.id}/outputs/${parsed.outputId}`);
+  revalidatePath(`/books/${data.book.id}/entrevistador`);
+  return { deliveredMdPath: rel };
+}
+
+const CommitSchema = z.object({
+  outputId: z.string().min(1),
+  /** Final repo-relative file path, e.g. "entrevistas/tomas/02c-cuchicheo.md". */
+  relPath: z
+    .string()
+    .min(1)
+    .max(300)
+    .regex(/\.md$/i, "must end in .md"),
+  commitMessage: z.string().min(3).max(1000),
+});
+
+/**
+ * Approve the transcript and push it directly to the book's GitHub remote.
+ * Bypasses the `_pendiente-` staging convention. Requires GITHUB_TOKEN in
+ * .env. Does an ff-only pull before committing; fails loudly on divergence.
+ */
+export async function commitAndPushOutputAction(input: {
+  outputId: string;
+  relPath: string;
+  commitMessage: string;
+}): Promise<{ commitHash: string; commitUrl: string | null; deliveredMdPath: string }> {
+  const parsed = CommitSchema.parse(input);
+  const data = await getOutputForAuthor(parsed.outputId);
+  if (!data) throw new Error("output not found");
+
+  const result = await commitAndPush({
+    repoLocalPath: data.book.repoLocalPath,
+    relPath: parsed.relPath,
+    content: data.output.processedMd,
+    commitMessage: parsed.commitMessage,
+  });
+
+  await db
+    .update(schema.outputs)
+    .set({
+      deliveredMdPath: parsed.relPath,
+      deliveredAt: Date.now(),
+      approvedByAuthor: 1,
+    })
+    .where(eq(schema.outputs.id, parsed.outputId));
+
+  revalidatePath(`/books/${data.book.id}/outputs/${parsed.outputId}`);
+  revalidatePath(`/books/${data.book.id}/entrevistador`);
+  return {
+    commitHash: result.commitHash,
+    commitUrl: result.commitUrl,
+    deliveredMdPath: parsed.relPath,
   };
 }
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getOutputForAuthor } from "@/lib/actions/outputs";
+import { DeliveryForm } from "./delivery-form";
 import { RegenerateOutputButton } from "./regenerate-button";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,22 @@ export default async function OutputPage({
   if (!data) notFound();
 
   const { output, session, template, book, interviewee } = data;
+
+  // Suggested defaults for the delivery form. The author can override.
+  const sourceMdPath = template.sourceMdPath ?? "";
+  const sourceDir = sourceMdPath.includes("/")
+    ? sourceMdPath.slice(0, sourceMdPath.lastIndexOf("/"))
+    : "entrevistas/terceros";
+  const sourceBase = sourceMdPath
+    ? sourceMdPath.slice(sourceMdPath.lastIndexOf("/") + 1).replace(/\.md$/, "")
+    : "entrevista";
+  const suggestedSlug = `${sourceBase}-respuestas`;
+  const suggestedRelPath = `${sourceDir}/${suggestedSlug}.md`;
+  const closedAt = session.closedAt
+    ? new Date(session.closedAt).toISOString().slice(0, 10)
+    : "session-incomplete";
+  const suggestedCommitMessage = `Add ${suggestedRelPath}\n\nProcessed transcript from session ${session.id} closed ${closedAt}.\nInterviewee: ${interviewee?.displayName ?? "—"}.`;
+  const githubEnabled = Boolean(process.env.GITHUB_TOKEN);
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-12">
@@ -66,6 +83,16 @@ export default async function OutputPage({
           {output.processedMd}
         </pre>
       </section>
+
+      <DeliveryForm
+        outputId={output.id}
+        defaultRelDir={sourceDir}
+        defaultSlug={suggestedSlug}
+        defaultRelPath={suggestedRelPath}
+        defaultCommitMessage={suggestedCommitMessage}
+        githubEnabled={githubEnabled}
+        alreadyDelivered={output.deliveredMdPath}
+      />
     </main>
   );
 }
