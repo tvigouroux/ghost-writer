@@ -1,0 +1,77 @@
+{
+  "id": "memoir-cowork",
+  "name": "Memorias en Cowork",
+  "description": "Estructura para un libro de memorias trabajado en modalidad Cowork-with-Claude. Carpetas de capítulos, entrevistas (al autor y a terceros), notas operativas, outline vivo, y un CLAUDE.md con los cuatro modos del proyecto.",
+  "language": "es",
+  "placeholders": [
+    {
+      "key": "TITULO",
+      "label": "Título de trabajo del libro",
+      "required": true,
+      "example": "El gordo que aprendió a correr"
+    },
+    {
+      "key": "SUBTITULO",
+      "label": "Subtítulo de trabajo (opcional)",
+      "required": false,
+      "example": "Verdades que no quedan épicas en una foto"
+    },
+    {
+      "key": "TESIS",
+      "label": "Tesis o pregunta central del libro, en una frase",
+      "required": true,
+      "example": "Cómo un cuerpo y una identidad cambian cuando dejás de mentirte"
+    },
+    {
+      "key": "LECTOR_IDEAL",
+      "label": "Lector ideal en una frase",
+      "required": true,
+      "example": "Alguien que está empezando a moverse después de muchos años quieto"
+    },
+    {
+      "key": "TONO",
+      "label": "Tono y voz del libro (palabras clave)",
+      "required": true,
+      "example": "íntimo, irónico, autocrítico, sin épica"
+    },
+    {
+      "key": "AUTOR_NOMBRE",
+      "label": "Tu nombre como autor",
+      "required": true
+    },
+    {
+      "key": "TEMA_PRINCIPAL",
+      "label": "Tema principal en 2-4 palabras",
+      "required": true,
+      "example": "trail running, transformación física"
+    },
+    {
+      "key": "ANIO_INICIO",
+      "label": "Año en que arranca la historia",
+      "required": false
+    }
+  ],
+  "directories": [
+    "capitulos",
+    "entrevistas/autor",
+    "entrevistas/terceros",
+    "investigacion",
+    "notas"
+  ],
+  "files": [
+    { "src": "CLAUDE.md.tmpl", "dst": "CLAUDE.md" },
+    { "src": "outline.md.tmpl", "dst": "outline.md" },
+    { "src": "acerca-de-mi.md.tmpl", "dst": "acerca-de-mi.md" },
+    { "src": "nota-del-autor.md.tmpl", "dst": "nota-del-autor.md" },
+    { "src": "notas/seguimiento.md.tmpl", "dst": "notas/seguimiento.md" },
+    { "src": "notas/inconsistencias.md.tmpl", "dst": "notas/inconsistencias.md" },
+    { "src": "notas/permisos.md.tmpl", "dst": "notas/permisos.md" },
+    { "src": "notas/cronologia.md.tmpl", "dst": "notas/cronologia.md" },
+    { "src": "notas/como-retomar.md.tmpl", "dst": "notas/como-retomar.md" },
+    { "src": "entrevistas/_plantilla-introduccion.md.tmpl", "dst": "entrevistas/terceros/_plantilla-introduccion.md" },
+    { "src": "entrevistas/_plantilla-guia-tercero.md.tmpl", "dst": "entrevistas/terceros/_plantilla-guia.md" },
+    { "src": "README.md.tmpl", "dst": "README.md" }
+  ],
+  "enabled_modes": ["interviewer", "architect", "writer", "researcher"],
+  "first_commit_message": "Initial scaffold from memoir-cowork template"
+}

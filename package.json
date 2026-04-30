@@ -12,7 +12,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:studio": "drizzle-kit studio",
-    "smoke:claude": "tsx scripts/smoke-claude.ts"
+    "smoke:claude": "tsx scripts/smoke-claude.ts",
+    "test:repo": "tsx scripts/test-repo.ts",
+    "validate:templates": "tsx scripts/validate-templates.ts"
   },
   "dependencies": {
     "next": "^15.0.3",

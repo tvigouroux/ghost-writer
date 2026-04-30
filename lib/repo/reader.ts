@@ -1,5 +1,3 @@
-import "server-only";
-
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve, sep } from "node:path";

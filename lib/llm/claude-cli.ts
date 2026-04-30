@@ -44,16 +44,22 @@ export class ClaudeCliClient implements LLMClient {
         windowsHide: true,
       });
 
+      // With `stdio: ["pipe","pipe","pipe"]` these are guaranteed non-null,
+      // but the type system doesn't know that.
+      const stdoutStream = child.stdout!;
+      const stderrStream = child.stderr!;
+      const stdinStream = child.stdin!;
+
       const onAbort = () => child.kill("SIGTERM");
       opts.signal?.addEventListener("abort", onAbort, { once: true });
 
       let stdout = "";
       let stderr = "";
 
-      child.stdout.setEncoding("utf8");
-      child.stderr.setEncoding("utf8");
-      child.stdout.on("data", (chunk: string) => (stdout += chunk));
-      child.stderr.on("data", (chunk: string) => (stderr += chunk));
+      stdoutStream.setEncoding("utf8");
+      stderrStream.setEncoding("utf8");
+      stdoutStream.on("data", (chunk: string) => (stdout += chunk));
+      stderrStream.on("data", (chunk: string) => (stderr += chunk));
 
       child.on("error", (err) => {
         opts.signal?.removeEventListener("abort", onAbort);
@@ -81,8 +87,8 @@ export class ClaudeCliClient implements LLMClient {
         }
       });
 
-      child.stdin.write(opts.userPrompt);
-      child.stdin.end();
+      stdinStream.write(opts.userPrompt);
+      stdinStream.end();
     });
   }
 }

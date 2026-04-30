@@ -1,5 +1,3 @@
-import "server-only";
-
 import { existsSync, mkdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
