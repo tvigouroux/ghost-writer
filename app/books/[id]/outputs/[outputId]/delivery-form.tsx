@@ -20,6 +20,7 @@ export function DeliveryForm({
   defaultSlug,
   defaultRelPath,
   defaultCommitMessage,
+  commitBranch,
   githubEnabled,
   alreadyDelivered,
 }: {
@@ -28,6 +29,7 @@ export function DeliveryForm({
   defaultSlug: string;
   defaultRelPath: string;
   defaultCommitMessage: string;
+  commitBranch: string;
   githubEnabled: boolean;
   alreadyDelivered: string | null;
 }) {
@@ -67,7 +69,7 @@ export function DeliveryForm({
     if (
       !opts.overwrite &&
       !confirm(
-        `Esto hace git commit + push directamente a main del repo del libro:\n\n${relPath}\n\nEs visible en GitHub al instante. ¿Seguir?`,
+        `Esto hace git commit + push a la rama '${commitBranch}' del repo del libro:\n\n${relPath}\n\nVisible en GitHub al instante. ¿Seguir?`,
       )
     ) {
       return;
@@ -169,7 +171,10 @@ export function DeliveryForm({
 
       {/* Commit + push */}
       <div className="rounded border border-stone-300 p-4 dark:border-stone-700">
-        <h3 className="text-sm font-medium">Commit y push directo a main</h3>
+        <h3 className="text-sm font-medium">
+          Commit y push a la rama{" "}
+          <code className="font-mono">{commitBranch}</code>
+        </h3>
         {!githubEnabled ? (
           <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
             Para activar este botón, agrega un{" "}
@@ -178,11 +183,21 @@ export function DeliveryForm({
           </p>
         ) : (
           <p className="mt-1 text-xs text-stone-500">
-            La app hace <code className="font-mono">git pull --ff-only</code>,
-            escribe el archivo en el path final, commitea con tu identidad de{" "}
-            <code className="font-mono">.env</code> y pushea a{" "}
-            <code className="font-mono">origin/main</code>. Visible en GitHub
-            al instante.
+            La app hace <code className="font-mono">git fetch + checkout</code>{" "}
+            de la rama, <code className="font-mono">git pull --ff-only</code>{" "}
+            (si la rama ya existe en el remote), escribe el archivo, commitea
+            con tu identidad de <code className="font-mono">.env</code> y
+            pushea a <code className="font-mono">origin/{commitBranch}</code>.{" "}
+            {commitBranch === "main" ? (
+              <span className="text-amber-700 dark:text-amber-400">
+                Vas directo a <code className="font-mono">main</code>.
+              </span>
+            ) : (
+              <>
+                Cambiá la rama destino en{" "}
+                <code className="font-mono">/books/&lt;id&gt;</code> si querés.
+              </>
+            )}
           </p>
         )}
         <label className="mt-3 block">
@@ -230,7 +245,8 @@ export function DeliveryForm({
             </>
           ) : (
             <>
-              Pusheado a main: <code className="font-mono">{success.deliveredMdPath}</code>.
+              Pusheado a <code className="font-mono">{commitBranch}</code>:{" "}
+              <code className="font-mono">{success.deliveredMdPath}</code>.
               {success.commitUrl ? (
                 <>
                   {" "}

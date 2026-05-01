@@ -100,6 +100,7 @@ export default async function OutputPage({
         defaultSlug={suggestedSlug}
         defaultRelPath={suggestedRelPath}
         defaultCommitMessage={suggestedCommitMessage}
+        commitBranch={book.commitBranch}
         githubEnabled={githubEnabled}
         alreadyDelivered={output.deliveredMdPath}
       />

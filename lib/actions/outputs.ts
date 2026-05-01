@@ -259,6 +259,7 @@ export async function commitAndPushOutputAction(input: {
     content: data.output.processedMd,
     commitMessage: parsed.commitMessage,
     overwrite: parsed.overwrite,
+    branch: data.book.commitBranch || "main",
   });
 
   await db

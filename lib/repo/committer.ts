@@ -88,20 +88,56 @@ export async function commitAndPush(opts: CommitOptions): Promise<CommitResult> 
   const authHeader = `Authorization: Basic ${basicAuth}`;
   const git = simpleGit(opts.repoLocalPath);
 
-  // 1. Sync remote before writing. ff-only fails loudly on divergence.
+  // 1. Make sure the local clone is on the target branch. If the branch
+  //    doesn't exist locally, create it from origin/<branch> if available,
+  //    otherwise from the current HEAD (this is the "first commit on the
+  //    designated branch" case). Always fetch first so we know what the
+  //    remote has.
   try {
     await git.raw([
       "-c",
       `http.extraheader=${authHeader}`,
-      "pull",
-      "--ff-only",
+      "fetch",
       "origin",
       branch,
     ]);
-  } catch (err) {
-    throw new Error(
-      `git pull --ff-only failed (clone diverged from remote?): ${redact((err as Error).message, token)}`,
-    );
+  } catch {
+    /* remote branch may not exist yet — that's fine, we'll create it on push */
+  }
+
+  const branches = await git.branchLocal();
+  const remoteBranches = await git.branch(["-r"]);
+  const remoteRefName = `origin/${branch}`;
+  const remoteBranchExists = Object.keys(remoteBranches.branches).includes(remoteRefName);
+
+  if (branches.current !== branch) {
+    if (Object.keys(branches.branches).includes(branch)) {
+      await git.checkout(branch);
+    } else if (remoteBranchExists) {
+      await git.checkoutBranch(branch, remoteRefName);
+    } else {
+      // First time on this branch and no remote ref yet — create from current HEAD.
+      await git.checkoutLocalBranch(branch);
+    }
+  }
+
+  // 2. Sync the branch with the remote if a remote tip exists. ff-only fails
+  //    loudly on divergence.
+  if (remoteBranchExists) {
+    try {
+      await git.raw([
+        "-c",
+        `http.extraheader=${authHeader}`,
+        "pull",
+        "--ff-only",
+        "origin",
+        branch,
+      ]);
+    } catch (err) {
+      throw new Error(
+        `git pull --ff-only failed on branch '${branch}' (clone diverged from remote?): ${redact((err as Error).message, token)}`,
+      );
+    }
   }
 
   // 2. Sanity check: if the file exists with different content, the rendered
@@ -163,14 +199,17 @@ export async function commitAndPush(opts: CommitOptions): Promise<CommitResult> 
     );
   }
 
-  // 4. Push.
+  // 4. Push. Use -u so the local branch tracks origin/<branch> on its first
+  //    push, and a fully qualified refspec so we always create the branch
+  //    on the remote rather than relying on push.default.
   try {
     await git.raw([
       "-c",
       `http.extraheader=${authHeader}`,
       "push",
+      "-u",
       "origin",
-      branch,
+      `${branch}:${branch}`,
     ]);
   } catch (err) {
     throw new Error(`git push failed: ${redact((err as Error).message, token)}`);

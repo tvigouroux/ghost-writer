@@ -36,6 +36,11 @@ export const books = sqliteTable("books", {
   // BCP-47 code of the book's primary interaction language. Drives the
   // language Claude uses when speaking to interviewees and writing transcripts.
   defaultLanguage: text("default_language").notNull().default("es"),
+  // Branch the app commits to when "commit + push" is invoked. Default
+  // routes app commits to a dedicated branch so the author can keep
+  // working on `main` from elsewhere (e.g. Cowork sessions) without the
+  // app interleaving commits.
+  commitBranch: text("commit_branch").notNull().default("ghost-writer-staging"),
   // JSON array of enabled modes, e.g. ["interviewer"] in MVP.
   enabledModes: text("enabled_modes").notNull().default('["interviewer"]'),
   createdAt: integer("created_at").notNull().default(sql`(unixepoch() * 1000)`),

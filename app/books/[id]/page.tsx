@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getBookById, getBookRemoteInfo } from "@/lib/actions/books";
+import { CommitBranchPanel } from "./commit-branch-panel";
 import { RemotePanel } from "./remote-panel";
 
 export default async function BookOverviewPage({
@@ -57,6 +58,8 @@ export default async function BookOverviewPage({
           detectedGithubUrl={remoteInfo.detectedGithubUrl}
         />
       ) : null}
+
+      <CommitBranchPanel bookId={book.id} current={book.commitBranch} />
 
       <section className="mt-12">
         <h2 className="text-xl font-medium">Modos</h2>

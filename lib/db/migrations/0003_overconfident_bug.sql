@@ -1,0 +1,1 @@
+ALTER TABLE `books` ADD `commit_branch` text DEFAULT 'ghost-writer-staging' NOT NULL;

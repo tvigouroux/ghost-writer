@@ -141,6 +141,36 @@ const RelinkSchema = z.object({
     ),
 });
 
+const SetBranchSchema = z.object({
+  bookId: z.string().min(1),
+  branch: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[A-Za-z0-9._\-/]+$/, "branch name has invalid chars"),
+});
+
+/**
+ * Update the branch the app commits to. Default is "ghost-writer-staging"
+ * so app commits don't interleave with the author's manual work on main.
+ */
+export async function setBookCommitBranchAction(input: {
+  bookId: string;
+  branch: string;
+}): Promise<void> {
+  const parsed = SetBranchSchema.parse(input);
+  const book = await getBookById(parsed.bookId);
+  if (!book) throw new Error("book not found");
+
+  await db
+    .update(schema.books)
+    .set({ commitBranch: parsed.branch })
+    .where(eq(schema.books.id, parsed.bookId));
+
+  revalidatePath(`/books/${parsed.bookId}`);
+  revalidatePath(`/books/${parsed.bookId}/entrevistador`);
+}
+
 export async function relinkBookOriginAction(input: {
   bookId: string;
   newOriginUrl: string;
