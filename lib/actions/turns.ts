@@ -259,6 +259,38 @@ function pickAggregatorPath(
   return sourceMdPath.replace(/\.md$/i, "-respuestas.md");
 }
 
+/**
+ * Seed block_coverage + current_block_id from a context_summary so the
+ * interviewer doesn't restart from scratch when prior sessions already
+ * covered most of the territory. Returns the seeded values; falls back to
+ * "all pending" + first block if the summary is missing or unparseable.
+ */
+function seedCoverageFromSummary(
+  blocks: GuideBlock[],
+  contextSummaryJson: string | null,
+): { coverage: Record<string, BlockStatus>; currentBlockId: string } {
+  const coverage: Record<string, BlockStatus> = {};
+  if (contextSummaryJson) {
+    try {
+      const summary = JSON.parse(contextSummaryJson);
+      for (const b of blocks) {
+        const bs = summary?.block_summaries?.[b.id];
+        const c = bs?.coverage_in_context;
+        if (c === "covered") coverage[b.id] = "covered";
+        else if (c === "partial") coverage[b.id] = "partial";
+        else coverage[b.id] = "pending";
+      }
+    } catch {
+      for (const b of blocks) coverage[b.id] = "pending";
+    }
+  } else {
+    for (const b of blocks) coverage[b.id] = "pending";
+  }
+  const firstUncovered =
+    blocks.find((b) => coverage[b.id] !== "covered")?.id ?? blocks[0]?.id ?? "";
+  return { coverage, currentBlockId: firstUncovered };
+}
+
 async function readBookClaudeMd(bookLocalPath: string): Promise<string> {
   const reader = new RepoReader(bookLocalPath);
   try {
@@ -362,7 +394,25 @@ export async function startOrContinueAction(token: string): Promise<RoomState> {
   const contextSummary = await ensureSessionContextSummary(session.id);
 
   const blocks = JSON.parse(template.guideBlocks) as GuideBlock[];
-  const coverage = JSON.parse(session.blockCoverage ?? "{}") as Record<string, BlockStatus>;
+  let coverage = JSON.parse(session.blockCoverage ?? "{}") as Record<string, BlockStatus>;
+  let currentBlockId = session.currentBlockId ?? blocks[0]?.id ?? "";
+
+  // First-turn seeding: if every block is still "pending", the summary may
+  // tell us which ones are already covered in prior materials. Seed from
+  // there so the model doesn't restart from block-1 asking for recap.
+  const allPending = Object.values(coverage).every((v) => v === "pending");
+  if (allPending && contextSummary) {
+    const seeded = seedCoverageFromSummary(blocks, contextSummary);
+    coverage = seeded.coverage;
+    currentBlockId = seeded.currentBlockId;
+    await db
+      .update(schema.sessions)
+      .set({
+        blockCoverage: JSON.stringify(coverage),
+        currentBlockId,
+      })
+      .where(eq(schema.sessions.id, session.id));
+  }
 
   const claudeMd = await readBookClaudeMd(book.repoLocalPath);
 
@@ -376,7 +426,7 @@ export async function startOrContinueAction(token: string): Promise<RoomState> {
     contextSummary: contextSummary ?? undefined,
     blocks,
     blockCoverage: coverage,
-    currentBlockId: session.currentBlockId ?? blocks[0]?.id ?? "",
+    currentBlockId,
     history: [],
   });
 

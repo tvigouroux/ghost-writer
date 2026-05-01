@@ -311,8 +311,32 @@ export async function resetSessionAction(
   if (!book) throw new Error("book not found");
 
   const blocks = JSON.parse(template.guideBlocks) as { id: string }[];
-  const initialCoverage: Record<string, "pending"> = {};
-  for (const b of blocks) initialCoverage[b.id] = "pending";
+
+  // Seed coverage from the cached context_summary when we're keeping it.
+  // Without this seed, "reset" would always restart from "all pending" and
+  // the interviewer would re-ask material the prior interviews already
+  // captured.
+  let initialCoverage: Record<string, "pending" | "partial" | "covered">;
+  let initialCurrent: string | null = blocks[0]?.id ?? null;
+  if (!dropSummary && session.contextSummary) {
+    const seeded: Record<string, "pending" | "partial" | "covered"> = {};
+    try {
+      const sum = JSON.parse(session.contextSummary);
+      for (const b of blocks) {
+        const c = sum?.block_summaries?.[b.id]?.coverage_in_context;
+        if (c === "covered") seeded[b.id] = "covered";
+        else if (c === "partial") seeded[b.id] = "partial";
+        else seeded[b.id] = "pending";
+      }
+      initialCoverage = seeded;
+      initialCurrent =
+        blocks.find((b) => seeded[b.id] !== "covered")?.id ?? blocks[0]?.id ?? null;
+    } catch {
+      initialCoverage = Object.fromEntries(blocks.map((b) => [b.id, "pending"])) as Record<string, "pending">;
+    }
+  } else {
+    initialCoverage = Object.fromEntries(blocks.map((b) => [b.id, "pending"])) as Record<string, "pending">;
+  }
 
   // Mint a new token so the old link is invalidated by jti rotation.
   const token = await signIntervieweeToken({
@@ -324,7 +348,7 @@ export async function resetSessionAction(
   await db.delete(schema.outputs).where(eq(schema.outputs.sessionId, sessionId));
   const updates: Record<string, unknown> = {
     status: "draft",
-    currentBlockId: blocks[0]?.id ?? null,
+    currentBlockId: initialCurrent,
     blockCoverage: JSON.stringify(initialCoverage),
     startedAt: null,
     closedAt: null,
