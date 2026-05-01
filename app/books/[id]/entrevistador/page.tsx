@@ -16,6 +16,7 @@ import { CreateSessionForm } from "./create-session-form";
 import { CreateTemplateForm } from "./create-template-form";
 import { SessionAdminButtons } from "./session-admin-buttons";
 import { SessionLinkButton } from "./session-link-button";
+import { TemplateAdminButtons } from "./template-admin";
 
 export default async function InterviewerPage({
   params,
@@ -57,19 +58,39 @@ export default async function InterviewerPage({
           </p>
         ) : (
           <ul className="mt-3 space-y-2">
-            {templates.map((t) => (
-              <li
-                key={t.id}
-                className="rounded border border-stone-200 p-3 text-sm dark:border-stone-800"
-              >
-                <div className="font-medium">{t.name}</div>
-                <div className="text-xs text-stone-500">
-                  {(JSON.parse(t.guideBlocks) as { id: string }[]).length}{" "}
-                  bloques · contexto:{" "}
-                  {(JSON.parse(t.contextFiles) as string[]).length} archivos
-                </div>
-              </li>
-            ))}
+            {templates.map((t) => {
+              const sessionsForTemplate = sessions.filter(
+                (s) => s.templateId === t.id,
+              ).length;
+              const created = new Date(t.createdAt).toISOString().slice(0, 16).replace("T", " ");
+              return (
+                <li
+                  key={t.id}
+                  className="rounded border border-stone-200 p-3 text-sm dark:border-stone-800"
+                >
+                  <div className="font-medium">{t.name}</div>
+                  <div className="text-xs text-stone-500">
+                    {(JSON.parse(t.guideBlocks) as { id: string }[]).length}{" "}
+                    bloques · contexto:{" "}
+                    {(JSON.parse(t.contextFiles) as string[]).length} archivos ·{" "}
+                    creado {created}
+                    {sessionsForTemplate > 0
+                      ? ` · ${sessionsForTemplate} sesión${sessionsForTemplate === 1 ? "" : "es"}`
+                      : ""}
+                  </div>
+                  {t.respuestasMdPath ? (
+                    <div className="mt-1 text-[10px] text-stone-500">
+                      acumulador: <code className="font-mono">{t.respuestasMdPath}</code>
+                    </div>
+                  ) : null}
+                  <TemplateAdminButtons
+                    templateId={t.id}
+                    templateName={t.name}
+                    sessionCount={sessionsForTemplate}
+                  />
+                </li>
+              );
+            })}
           </ul>
         )}
         <details className="mt-4" open={templates.length === 0}>

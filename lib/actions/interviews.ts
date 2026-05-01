@@ -221,6 +221,41 @@ export async function regenerateSessionLinkAction(
 }
 
 /**
+ * Hard-delete an interview template along with every session, turn, and
+ * output that depends on it. Files already pushed to the book repo are
+ * NOT touched — git history keeps them.
+ */
+export async function deleteInterviewTemplateAction(
+  templateId: string,
+): Promise<void> {
+  const template = await db.query.interviewTemplates.findFirst({
+    where: eq(schema.interviewTemplates.id, templateId),
+  });
+  if (!template) return;
+  const book = await getBookById(template.bookId);
+  if (!book) throw new Error("book not found");
+
+  // Cascade manually: outputs → turns → sessions → template.
+  // (Foreign keys on sessions don't have onDelete cascade for the template
+  // pointer, and outputs reference sessions, so order matters.)
+  const sessionsOfTemplate = await db.query.sessions.findMany({
+    where: eq(schema.sessions.templateId, templateId),
+  });
+  for (const s of sessionsOfTemplate) {
+    await db.delete(schema.outputs).where(eq(schema.outputs.sessionId, s.id));
+    await db.delete(schema.turns).where(eq(schema.turns.sessionId, s.id));
+  }
+  await db
+    .delete(schema.sessions)
+    .where(eq(schema.sessions.templateId, templateId));
+  await db
+    .delete(schema.interviewTemplates)
+    .where(eq(schema.interviewTemplates.id, templateId));
+
+  revalidatePath(`/books/${template.bookId}/entrevistador`);
+}
+
+/**
  * Force-recompute and persist the session's context_summary. Used after the
  * author edits the book repo (added entries to outline.md, added a notes
  * file, etc.) to refresh what the interviewer agent knows.
