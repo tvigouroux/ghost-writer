@@ -1,0 +1,1 @@
+ALTER TABLE `interview_templates` ADD `respuestas_md_path` text;

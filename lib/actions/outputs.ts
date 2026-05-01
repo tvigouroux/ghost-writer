@@ -61,6 +61,32 @@ export async function regenerateOutputAction(sessionId: string): Promise<{
     /* missing CLAUDE.md is acceptable */
   }
 
+  // Read the aggregator file (if it exists) so the renderer enriches it
+  // instead of producing a standalone document. See pickAggregatorPath in
+  // turns.ts for the resolution logic — duplicated here to avoid circular
+  // imports between the two server-action modules.
+  const priorDeliveredPath = (
+    await db.query.outputs.findFirst({
+      where: eq(schema.outputs.sessionId, sessionId),
+    })
+  )?.deliveredMdPath;
+  const aggregatorPath = (() => {
+    if (priorDeliveredPath) return priorDeliveredPath;
+    if (template.respuestasMdPath) return template.respuestasMdPath;
+    const src = template.sourceMdPath;
+    if (!src) return null;
+    if (/-respuestas\.md$/i.test(src)) return src;
+    return src.replace(/\.md$/i, "-respuestas.md");
+  })();
+  let existingTranscript: string | undefined;
+  if (aggregatorPath) {
+    try {
+      existingTranscript = await reader.readFile(aggregatorPath);
+    } catch {
+      /* first session — file doesn't exist yet */
+    }
+  }
+
   const ts = new Date(session.closedAt ?? Date.now());
   const sessionDate = `${ts.getFullYear()}-${String(ts.getMonth() + 1).padStart(2, "0")}-${String(ts.getDate()).padStart(2, "0")}`;
 
@@ -82,6 +108,7 @@ export async function regenerateOutputAction(sessionId: string): Promise<{
     sessionDate,
     closedBy: "agent",
     sessionId,
+    existingTranscript,
   });
 
   const existing = await db.query.outputs.findFirst({
@@ -207,6 +234,8 @@ const CommitSchema = z.object({
     .max(300)
     .regex(/\.md$/i, "must end in .md"),
   commitMessage: z.string().min(3).max(1000),
+  /** Explicit opt-in to overwrite an existing file at relPath. */
+  overwrite: z.boolean().optional().default(false),
 });
 
 /**
@@ -218,6 +247,7 @@ export async function commitAndPushOutputAction(input: {
   outputId: string;
   relPath: string;
   commitMessage: string;
+  overwrite?: boolean;
 }): Promise<{ commitHash: string; commitUrl: string | null; deliveredMdPath: string }> {
   const parsed = CommitSchema.parse(input);
   const data = await getOutputForAuthor(parsed.outputId);
@@ -228,6 +258,7 @@ export async function commitAndPushOutputAction(input: {
     relPath: parsed.relPath,
     content: data.output.processedMd,
     commitMessage: parsed.commitMessage,
+    overwrite: parsed.overwrite,
   });
 
   await db

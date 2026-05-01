@@ -217,6 +217,7 @@ export async function renderInterviewOutput(
   const systemPrompt = buildRendererSystemPrompt({
     bookLanguage: input.bookLanguage,
     bookLanguageLabel,
+    hasExistingTranscript: Boolean(input.existingTranscript),
   });
   const userPrompt = buildRendererUserPrompt({ ...input, bookLanguageLabel });
   const result = await client.complete({

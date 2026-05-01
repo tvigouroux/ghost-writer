@@ -18,6 +18,9 @@ export default async function OutputPage({
   const { output, session, template, book, interviewee } = data;
 
   // Suggested defaults for the delivery form. The author can override.
+  // Default to the aggregator path: explicit respuestasMdPath on the
+  // template, or inferred sibling of sourceMdPath. Cumulative across
+  // sessions — the renderer enriches this file every time.
   const sourceMdPath = template.sourceMdPath ?? "";
   const sourceDir = sourceMdPath.includes("/")
     ? sourceMdPath.slice(0, sourceMdPath.lastIndexOf("/"))
@@ -25,8 +28,15 @@ export default async function OutputPage({
   const sourceBase = sourceMdPath
     ? sourceMdPath.slice(sourceMdPath.lastIndexOf("/") + 1).replace(/\.md$/, "")
     : "entrevista";
-  const suggestedSlug = `${sourceBase}-respuestas`;
-  const suggestedRelPath = `${sourceDir}/${suggestedSlug}.md`;
+  const inferredAggregator = sourceMdPath
+    ? /-respuestas\.md$/i.test(sourceMdPath)
+      ? sourceMdPath
+      : `${sourceDir}/${sourceBase}-respuestas.md`
+    : `${sourceDir}/entrevista-respuestas.md`;
+  const suggestedRelPath = template.respuestasMdPath || inferredAggregator;
+  const suggestedSlug = suggestedRelPath
+    .slice(suggestedRelPath.lastIndexOf("/") + 1)
+    .replace(/\.md$/, "");
   const closedAt = session.closedAt
     ? new Date(session.closedAt).toISOString().slice(0, 10)
     : "session-incomplete";

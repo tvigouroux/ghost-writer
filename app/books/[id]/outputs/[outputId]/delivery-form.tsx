@@ -47,6 +47,7 @@ export function DeliveryForm({
   // Commit form state
   const [relPath, setRelPath] = useState(defaultRelPath);
   const [commitMessage, setCommitMessage] = useState(defaultCommitMessage);
+  const [overwriteRequested, setOverwriteRequested] = useState(false);
 
   function deposit() {
     setError(null);
@@ -62,8 +63,9 @@ export function DeliveryForm({
     });
   }
 
-  function commit() {
+  function commit(opts: { overwrite?: boolean } = {}) {
     if (
+      !opts.overwrite &&
       !confirm(
         `Esto hace git commit + push directamente a main del repo del libro:\n\n${relPath}\n\nEs visible en GitHub al instante. ¿Seguir?`,
       )
@@ -72,9 +74,15 @@ export function DeliveryForm({
     }
     setError(null);
     setSuccess(null);
+    setOverwriteRequested(false);
     start(async () => {
       try {
-        const r = await commitAndPushOutputAction({ outputId, relPath, commitMessage });
+        const r = await commitAndPushOutputAction({
+          outputId,
+          relPath,
+          commitMessage,
+          overwrite: opts.overwrite,
+        });
         setSuccess({
           kind: "commit",
           deliveredMdPath: r.deliveredMdPath,
@@ -82,9 +90,26 @@ export function DeliveryForm({
         });
         router.refresh();
       } catch (err) {
-        setError((err as Error).message);
+        const msg = (err as Error).message;
+        // Detect the OverwriteError signature so the UI can offer a deliberate
+        // overwrite path instead of just printing "already exists".
+        if (msg.includes("already exists") && msg.includes("Pick a unique path")) {
+          setOverwriteRequested(true);
+        }
+        setError(msg);
       }
     });
+  }
+
+  function confirmOverwriteAndCommit() {
+    if (
+      !confirm(
+        `OJO: ${relPath} ya existe en el repo con contenido distinto.\n\nSi confirmás, esta transcripción VA A REEMPLAZAR el archivo entero. El historial de git lo conserva, pero recuperarlo después es manual.\n\n¿Seguro que querés sobreescribir?`,
+      )
+    ) {
+      return;
+    }
+    commit({ overwrite: true });
   }
 
   return (
@@ -182,7 +207,7 @@ export function DeliveryForm({
         <button
           type="button"
           disabled={pending || !githubEnabled}
-          onClick={commit}
+          onClick={() => commit()}
           className="mt-3 rounded border border-emerald-500 bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
         >
           {pending ? "haciendo push…" : "Commit + push a main"}

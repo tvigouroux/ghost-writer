@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import { simpleGit } from "simple-git";
 
@@ -27,6 +27,26 @@ export interface CommitOptions {
   commitMessage: string;
   /** Branch to push. Defaults to "main". */
   branch?: string;
+  /**
+   * If a file already exists at relPath with DIFFERENT content from what
+   * we're about to write, this flag controls behavior:
+   *   - false (default): refuse to overwrite. Throws OverwriteError so the UI
+   *     can ask the author to either pick a different path or confirm.
+   *   - true: overwrite (the destructive case). The author has explicitly
+   *     opted in.
+   * Identical existing content is always treated as a no-op-on-write
+   * regardless of this flag — that's the resume-after-failed-push case.
+   */
+  overwrite?: boolean;
+}
+
+export class OverwriteError extends Error {
+  constructor(public readonly relPath: string) {
+    super(
+      `'${relPath}' already exists in the repo with different content. Pick a unique path or confirm overwrite explicitly.`,
+    );
+    this.name = "OverwriteError";
+  }
 }
 
 export interface CommitResult {
@@ -84,7 +104,26 @@ export async function commitAndPush(opts: CommitOptions): Promise<CommitResult> 
     );
   }
 
-  // 2. Write the file.
+  // 2. Sanity check: if the file exists with different content, the rendered
+  //    document we are about to write should be a SUPERSET of it (the
+  //    enrichment-mode renderer preserves prior sessions). Refuse if the
+  //    new content drops more than 200 chars of unique text the existing
+  //    file had — that's the classic "renderer forgot to enrich" failure
+  //    mode and it should never silently lose history.
+  if (existsSync(abs)) {
+    const existing = await readFile(abs, "utf8");
+    if (existing !== opts.content && !opts.overwrite) {
+      const lostChars = countLostUniqueChars(existing, opts.content);
+      if (lostChars > 200) {
+        throw new Error(
+          `refusing to overwrite ${opts.relPath}: the new content drops ~${lostChars} chars of unique prose from the existing file. ` +
+            "If this is intentional (e.g. a manual rewrite), regenerate the transcript with overwrite enabled.",
+        );
+      }
+    }
+  }
+
+  // 3. Write the file (no-op if byte-identical).
   mkdirSync(dirname(abs), { recursive: true });
   await writeFile(abs, opts.content, "utf8");
 
@@ -158,4 +197,26 @@ function githubCommitUrl(remoteUrl: string, hash: string): string | null {
 function redact(s: string, token: string): string {
   if (!token) return s;
   return s.split(token).join(TOKEN_REDACT);
+}
+
+/**
+ * Heuristic: count how many characters of unique runs (length>=20, alpha)
+ * present in `existing` are absent from `incoming`. Used to detect when an
+ * "enriched" rewrite actually lost a chunk of prior prose. Not exact — that
+ * would need real diffing — just enough to refuse obvious regressions.
+ */
+function countLostUniqueChars(existing: string, incoming: string): number {
+  const incomingLower = incoming.toLowerCase();
+  let lost = 0;
+  // Slide windows of 40 chars over the existing document; count those that
+  // don't appear anywhere in incoming. Skip whitespace-only windows and
+  // common section-header lines that are expected to repeat.
+  const step = 40;
+  for (let i = 0; i + step <= existing.length; i += step) {
+    const window = existing.slice(i, i + step).toLowerCase();
+    if (!/[a-záéíóúñ]/i.test(window)) continue;
+    if (window.startsWith("##") || window.startsWith("**")) continue;
+    if (!incomingLower.includes(window)) lost += step;
+  }
+  return lost;
 }

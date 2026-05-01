@@ -53,6 +53,7 @@ export function CreateTemplateForm({
   const [guideBlocksJson, setGuideBlocksJson] = useState(DEFAULT_BLOCKS);
   const [selectedContext, setSelectedContext] = useState<Set<string>>(new Set());
   const [sourceMdPath, setSourceMdPath] = useState("");
+  const [respuestasMdPath, setRespuestasMdPath] = useState("");
   const [importPath, setImportPath] = useState("");
   const [warnings, setWarnings] = useState<string[]>([]);
   const [submitting, startTransition] = useTransition();
@@ -141,6 +142,7 @@ export function CreateTemplateForm({
             [...selectedContext].sort().join("\n"),
           );
           formData.set("sourceMdPath", sourceMdPath);
+          formData.set("respuestasMdPath", respuestasMdPath);
           startTransition(async () => {
             try {
               await createInterviewTemplateAction(formData);
@@ -206,6 +208,47 @@ export function CreateTemplateForm({
           onChange={setSourceMdPath}
           placeholder="entrevistas/terceros/03-daniela.md"
         />
+
+        <div>
+          <span className="block text-sm font-medium">
+            Archivo de respuestas acumulado
+          </span>
+          <p className="mt-1 text-xs text-stone-500">
+            Si ya existe un{" "}
+            <code className="font-mono">*-respuestas.md</code> con sesiones
+            previas, elegilo acá. Cada cierre de sesión va a{" "}
+            <strong>enriquecer</strong> ese archivo en lugar de crear uno
+            nuevo. Si lo dejás vacío, se infiere desde el source path
+            agregando{" "}
+            <code className="font-mono">-respuestas.md</code>.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <select
+              value={
+                repoFiles.some((f) => f.path === respuestasMdPath)
+                  ? respuestasMdPath
+                  : ""
+              }
+              onChange={(e) => setRespuestasMdPath(e.target.value)}
+              className="min-w-[24rem] flex-1 rounded border border-stone-300 bg-white px-2 py-1 font-mono text-xs dark:border-stone-700 dark:bg-stone-900"
+            >
+              <option value="">— sin acumulador (se infiere) —</option>
+              {repoFiles
+                .filter((f) => /-respuestas\.md$/i.test(f.path))
+                .map((f) => (
+                  <option key={f.path} value={f.path}>
+                    {f.path}
+                  </option>
+                ))}
+            </select>
+            <input
+              value={respuestasMdPath}
+              onChange={(e) => setRespuestasMdPath(e.target.value)}
+              placeholder="o escribilo a mano"
+              className="min-w-[14rem] flex-1 rounded border border-stone-300 bg-white px-2 py-1 font-mono text-xs dark:border-stone-700 dark:bg-stone-900"
+            />
+          </div>
+        </div>
         <button
           type="submit"
           disabled={submitting}

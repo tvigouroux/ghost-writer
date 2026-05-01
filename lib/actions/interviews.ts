@@ -28,6 +28,8 @@ const CreateInterviewTemplateSchema = z.object({
   /** Newline-separated list of repo-relative paths. */
   contextFilesText: z.string().optional().default(""),
   sourceMdPath: z.string().optional().or(z.literal("")),
+  /** Optional explicit aggregator path for cumulative transcripts. */
+  respuestasMdPath: z.string().optional().or(z.literal("")),
 });
 
 export async function createInterviewTemplateAction(formData: FormData): Promise<void> {
@@ -39,6 +41,7 @@ export async function createInterviewTemplateAction(formData: FormData): Promise
     guideBlocksJson: formData.get("guideBlocksJson"),
     contextFilesText: formData.get("contextFilesText") || "",
     sourceMdPath: formData.get("sourceMdPath") || "",
+    respuestasMdPath: formData.get("respuestasMdPath") || "",
   });
 
   const book = await getBookById(parsed.bookId);
@@ -67,6 +70,7 @@ export async function createInterviewTemplateAction(formData: FormData): Promise
     guideBlocks: JSON.stringify(blocksParsed),
     contextFiles: JSON.stringify(contextFiles),
     sourceMdPath: parsed.sourceMdPath || null,
+    respuestasMdPath: parsed.respuestasMdPath || null,
     createdAt: Date.now(),
   });
 

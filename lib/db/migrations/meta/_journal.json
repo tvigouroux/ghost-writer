@@ -15,6 +15,13 @@
       "when": 1777584304663,
       "tag": "0001_special_gorilla_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1777594641122,
+      "tag": "0002_damp_phantom_reporter",
+      "breakpoints": true
     }
   ]
 }

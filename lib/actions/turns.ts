@@ -169,6 +169,28 @@ async function renderAndStoreOutput(
     /* missing CLAUDE.md is acceptable */
   }
 
+  // Multi-session continuity: if the template has a sourceMdPath that
+  // resolves to a `*-respuestas.md` aggregator already in the repo, read
+  // it and pass to the renderer so the new transcript ENRICHES the file
+  // instead of replacing it. Same logic applies if the prior output was
+  // already delivered somewhere — we use that path.
+  const priorOutput = await db.query.outputs.findFirst({
+    where: eq(schema.outputs.sessionId, sessionId),
+  });
+  const aggregatorPath = pickAggregatorPath(
+    template.sourceMdPath,
+    template.respuestasMdPath,
+    priorOutput?.deliveredMdPath,
+  );
+  let existingTranscript: string | undefined;
+  if (aggregatorPath) {
+    try {
+      existingTranscript = await reader.readFile(aggregatorPath);
+    } catch {
+      /* file doesn't exist yet — first session; renderer falls back to standalone */
+    }
+  }
+
   const ts = new Date(session.closedAt ?? Date.now());
   const sessionDate = `${ts.getFullYear()}-${String(ts.getMonth() + 1).padStart(2, "0")}-${String(ts.getDate()).padStart(2, "0")}`;
 
@@ -190,11 +212,10 @@ async function renderAndStoreOutput(
     sessionDate,
     closedBy,
     sessionId,
+    existingTranscript,
   });
 
-  const existing = await db.query.outputs.findFirst({
-    where: eq(schema.outputs.sessionId, sessionId),
-  });
+  const existing = priorOutput;
   if (existing) {
     await db
       .update(schema.outputs)
@@ -211,6 +232,31 @@ async function renderAndStoreOutput(
       createdAt: Date.now(),
     });
   }
+}
+
+/**
+ * Pick the path inside the book repo where this transcript should live as a
+ * cumulative aggregate across sessions. Order of preference:
+ *   1. The output's prior deliveredMdPath (definitive — author already
+ *      committed there before).
+ *   2. The template's explicit respuestasMdPath (author-configured at
+ *      template creation time).
+ *   3. The template's sourceMdPath transformed into a "-respuestas" sibling
+ *      (e.g. `entrevistas/tomas/02-intentos-previos.md` →
+ *      `entrevistas/tomas/02-intentos-previos-respuestas.md`).
+ *   4. `null` — first session, no aggregator yet, renderer produces a
+ *      standalone document.
+ */
+function pickAggregatorPath(
+  sourceMdPath: string | null,
+  respuestasMdPath: string | null,
+  deliveredMdPath: string | null | undefined,
+): string | null {
+  if (deliveredMdPath) return deliveredMdPath;
+  if (respuestasMdPath) return respuestasMdPath;
+  if (!sourceMdPath) return null;
+  if (/-respuestas\.md$/i.test(sourceMdPath)) return sourceMdPath;
+  return sourceMdPath.replace(/\.md$/i, "-respuestas.md");
 }
 
 async function readBookClaudeMd(bookLocalPath: string): Promise<string> {

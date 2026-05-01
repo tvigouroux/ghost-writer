@@ -65,6 +65,11 @@ export const interviewTemplates = sqliteTable("interview_templates", {
   // JSON: ["outline.md", "acerca-de-mi.md", ...] — paths relative to the book repo root.
   contextFiles: text("context_files").notNull().default("[]"),
   sourceMdPath: text("source_md_path"),
+  // Repo-relative path to the `*-respuestas.md` aggregator that accumulates
+  // transcripts across all sessions of this template. When set, every
+  // session's renderer enriches THIS file instead of producing a standalone
+  // document. Empty string → infer from sourceMdPath (default behavior).
+  respuestasMdPath: text("respuestas_md_path"),
   createdAt: integer("created_at").notNull().default(sql`(unixepoch() * 1000)`),
 });
 
