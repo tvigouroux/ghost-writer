@@ -95,28 +95,34 @@ export async function commitAndPush(opts: CommitOptions): Promise<CommitResult> 
 
   await git.add([opts.relPath]);
 
-  // Was anything actually staged? If the file is byte-identical to what's
-  // already on disk + indexed (e.g. a re-deliver), there's nothing to commit.
+  // Was anything actually staged?
   const status = await git.status();
-  if (
-    !status.staged.includes(opts.relPath) &&
-    !status.created.includes(opts.relPath) &&
-    !status.modified.includes(opts.relPath)
-  ) {
+  const hasChanges =
+    status.staged.includes(opts.relPath) ||
+    status.created.includes(opts.relPath) ||
+    status.modified.includes(opts.relPath);
+
+  if (hasChanges) {
+    await git.raw([
+      "-c",
+      `user.name=${authorName}`,
+      "-c",
+      `user.email=${authorEmail}`,
+      "commit",
+      "-m",
+      opts.commitMessage,
+    ]);
+  } else if (status.ahead > 0) {
+    // No new changes to stage, but the local clone has commits the remote
+    // hasn't seen yet. This typically happens after a previous attempt
+    // committed locally but failed to push (e.g. an earlier auth bug).
+    // Skip the commit step and go straight to pushing what's already here.
+    /* fall through to push */
+  } else {
     throw new Error(
-      `nothing to commit for ${opts.relPath} — file already up to date`,
+      `nothing to commit for ${opts.relPath} — file is byte-identical to HEAD and there are no local commits ahead of origin`,
     );
   }
-
-  const commitOut = await git.raw([
-    "-c",
-    `user.name=${authorName}`,
-    "-c",
-    `user.email=${authorEmail}`,
-    "commit",
-    "-m",
-    opts.commitMessage,
-  ]);
 
   // 4. Push.
   try {
