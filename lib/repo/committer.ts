@@ -143,9 +143,6 @@ export async function commitAndPush(opts: CommitOptions): Promise<CommitResult> 
   const origin = remotes.find((r) => r.name === "origin");
   const commitUrl = origin ? githubCommitUrl(origin.refs.fetch, commitHash) : null;
 
-  // commitOut is unused beyond debugging — discard.
-  void commitOut;
-
   return { commitHash, commitUrl, absPath: abs };
 }
 
