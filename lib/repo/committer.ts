@@ -59,7 +59,13 @@ export async function commitAndPush(opts: CommitOptions): Promise<CommitResult> 
     throw new Error(`path escapes repo root: ${opts.relPath}`);
   }
 
-  const authHeader = `Authorization: Bearer ${token}`;
+  // GitHub git-over-HTTPS expects Basic auth with the token as the password
+  // and any non-empty username (`x-access-token` is the convention). Bearer
+  // auth works for the REST API but is rejected by the git smart-HTTP
+  // protocol on github.com — that's why a token that authenticates fine
+  // against api.github.com still fails on `git push` if you send it as Bearer.
+  const basicAuth = Buffer.from(`x-access-token:${token}`).toString("base64");
+  const authHeader = `Authorization: Basic ${basicAuth}`;
   const git = simpleGit(opts.repoLocalPath);
 
   // 1. Sync remote before writing. ff-only fails loudly on divergence.
